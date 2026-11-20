@@ -1,25 +1,36 @@
 # The cantrips loop in this repo
 
-What the six storage verbs translate to here, and which knowledge stores are enabled.
+What the six storage verbs translate to here, which knowledge stores are enabled, and where the roadmap lives.
 Storage-touching skills read this doc instead of the plugin defaults.
 `/setup-cantrips-loop` wrote it; re-run that skill to change it.
 
 ## Storage backend
 
-Local markdown under `.scratch/<feature>/`, with `<feature>` a kebab-case slug.
-`.scratch/` is already listed in `.gitignore`, so a write there needs no gitignore check: the folder holds disposable working material, not a record, and the durable outcome lives in code, git history, and the knowledge stores below.
-Closing a finished feature is the human's act: the user deletes `.scratch/<feature>/` once it no longer serves. No verb does this.
+Local markdown under a gitignored `.scratch/`, each feature copied one way to GitHub issues by `/storage`'s script, the local files ruling.
+After publish-spec, and outside Claude Code after any write verb, sync the feature through `/storage` without asking, since its script publishes only in a clone the user marked; a spec opens with a one-line title, a level-one heading on its first line.
+A spec or a ticket delivering roadmap items names them on a `Roadmap items:` line, and publishing a spec marks its items in flight through `/roadmap`.
+To close a feature, close it through `/storage`, with `--done` or `--not-planned` where its tickets are not all resolved, and through `/roadmap`, then delete its folder.
 
-- **Publish the spec** (`publish-spec`) — write the spec to `.scratch/<feature>/spec.md`.
+- Mirror: `toverux/cs2-breakwater-tool`
+- Features: `.scratch/`
+
+- **Publish the spec** (`publish-spec`) — write it to `.scratch/<feature>/spec.md`, `<feature>` a kebab-case slug.
 - **Fetch the spec** (`fetch-spec`) — read `.scratch/<feature>/spec.md`.
-- **Annotate the spec** (`annotate-spec`) — append the note under a `## Comments` heading at the end of the spec file, each entry prefixed with its date; the body above that heading stays frozen.
-- **Publish the tickets** (`publish-tickets`) — write one file per ticket to `.scratch/<feature>/NN-<slug>.md`, numbered from `01` in dependency order, blocking edges as the ticket body's "Blocked by" prose; the shared folder is what ties a ticket to its parent spec.
+- **Annotate the spec** (`annotate-spec`) — append under a `## Comments` heading at the end of the file, each entry prefixed with its date; the annotation leaves the body above as written.
+- **Publish the tickets** (`publish-tickets`) — one file per ticket at `.scratch/<feature>/NN-<slug>.md`, numbered from `01` in dependency order, blocking edges as each ticket's "Blocked by" prose; the shared folder ties a ticket to its parent spec.
 - **Fetch the ticket** (`fetch-ticket`) — read the ticket file.
-- **Resolve the ticket** (`resolve-ticket`) — add or flip a `Status: resolved` line directly under the ticket's title; the verified acceptance-criterion checkboxes remain as evidence.
+- **Resolve the ticket** (`resolve-ticket`) — add or flip a `Status: resolved` line under the ticket's title; the ticked criteria stay as evidence.
 
-Three invariants hold whatever the backend: an annotation appends without touching what is already there and stays time-ordered; an annotation recording a revised decision governs over the body it revises, so later readers judge the spec as amended; and a published ticket is traceable to its parent spec.
+Invariants, here as on any backend: an annotation appends without disturbing what is already there, stays time-ordered, and governs over the body it revises; a ticket is traceable to its parent spec.
 
 ## Knowledge stores
 
 - `docs/adr/` — **disabled**.
 - `docs/solutions/` — **disabled**.
+
+## Roadmap
+
+Read and write this repo's roadmap through `/roadmap`.
+
+- Backend: `GitHub issues`
+- Tracker: `toverux/cs2-breakwater-tool`
