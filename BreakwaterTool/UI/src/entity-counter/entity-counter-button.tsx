@@ -1,6 +1,7 @@
 import { Button } from 'cs2/ui';
 import type { ReactElement } from 'react';
 import { Tooltip } from '../components/tooltip';
+import breakwaterToolSrc from '../icons/breakwater-tool.svg';
 import { useTranslate } from '../utils';
 import { TooltipLayout } from '../vanilla-modules/game-ui/common/tooltip/description-tooltip/description-tooltip';
 import { useIsEntityCounterPanelOpen } from './use-entity-counter-panel';
@@ -26,7 +27,7 @@ export function EntityCounterButton(): ReactElement {
       <Button
         variant='floating'
         className={styles.entityCounterButton}
-        src='Media/Game/Icons/CityStatistics.svg'
+        src={breakwaterToolSrc}
         selected={isOpen}
         onSelect={() => setIsOpen(open => !open)}
       />
