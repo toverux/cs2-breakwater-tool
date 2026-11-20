@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- The mod's single version source: the build script writes it into the UI bundle banner. -->
-    <Version>2026.0.0</Version>
+    <!--
+      The mod's single version source: the build script writes it into the UI bundle banner.
+      Semantic versioning: a major is a change to the save's serialization format or to the mod's
+      public .NET API.
+    -->
+    <Version>1.0.0</Version>
 
     <Configurations>Debug;Release</Configurations>
 

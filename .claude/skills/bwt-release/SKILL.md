@@ -55,12 +55,13 @@ Assume it is closed; if the build fails on the locked file, pause and ask the us
 
 ## 4. Choose the version
 
-`<year>.<feature>.<patch>`, read off the last tag:
+`<major>.<minor>.<patch>`, semantic versioning, read off the last tag and the changes since it:
 
-- The current year is past the last tag's year → `<year>.0.0`.
-- Some change in the log is a new capability the player can see → feature + 1, patch 0.
+- A change to the save's serialization format (a serialized type's fields, name, namespace or assembly, or its format version, even where every older version still reads), or an incompatible change to the mod's public .NET API → major + 1, minor and patch 0.
+- Otherwise, some change in the log is a new capability the player can see, or an addition to the public .NET API → minor + 1, patch 0.
 - Fixes, translations and internals only → patch + 1.
 
+Find the first case by reading the range's diff of the serialized types and of the `public` members, not the commit subjects alone.
 The first release keeps the csproj's version.
 
 ## 5. Rewrite the changelog

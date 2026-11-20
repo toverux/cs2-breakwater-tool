@@ -109,7 +109,7 @@ When the game's debugger port (unity) or its UI debugging port (gameface) is una
 A save outlives the mod: what the mod writes into one stays harmless with the mod removed, and readable by every later release.
 
 - **Removal**: with the mod removed, a save it wrote loads with no error dialog, the objects it laid stay as they were, and its own components drop out silently.
-- **Format**: every serialized type of the mod writes its format version first, the game versioning no mod data, and reads every version a release has written.
+- **Format**: every serialized type of the mod writes its format version first, the game versioning no mod data, and reads every version a release has written. A change of format is a major version of the mod.
 - **Identity**: a save names a serialized type by its assembly-qualified name. Once released, its namespace, name and assembly stay fixed; a rename carries `[FormerlySerializedAs]` with the old name.
 - **Proof**: a change to a serialized type, or to the entities a save keeps, is done when the running game has shown both loads: a save written with the mod, loaded without it, and a save written by the previous release, loaded by the new build.
 
@@ -132,6 +132,7 @@ A save outlives the mod: what the mod writes into one stays harmless with the mo
 - Reading that source settles what the engine does, never what it costs. Measure a claim about the running game before asserting one.
 - The mod patches no game code. When a change cannot be made through systems, prefabs or bindings, follow the `cs2-modding` skill's working loop, which keeps Harmony for last.
 - The toolchain's `CSII_*` variables are Windows user-scope environment variables, a scope Linux lacks: read one from the user scope with a process-environment fallback, the shape `BreakwaterTool.csproj` and `BreakwaterTool.Tests.csproj` use.
+- The mod's version follows semantic versioning: a major is a change to the save's serialization format or an incompatible change to the mod's public .NET API, which other mods can call. Keep a member `internal` unless another mod is meant to call it.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org): `<type>(<optional scope>): <summary>`, with the types `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `style`, `build`, `chore`. The release changelog is written from them.
 
 ## Boundaries

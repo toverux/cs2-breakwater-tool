@@ -13,7 +13,7 @@ Armours breakwaters and revetments with rows of stones, laid over a polygon you 
   <ExternalLink Type="crowdin" Url="https://crowdin.com/project/cs2-breakwater-tool" />
   <ExternalLink Type="paypal" Url="https://paypal.me/MorganTouverey" />
   <ExternalLink Type="kofi" Url="https://ko-fi.com/toverux" />
-  <ModVersion Value="2026.0.0" />
+  <ModVersion Value="1.0.0" />
   <GameVersion Value="1.6.*" />
   <!-- Anarchy: keeps overlapping stones from hiding each other. -->
   <Dependency Id="74604" />
