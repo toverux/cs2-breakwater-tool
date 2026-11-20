@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="BreakwaterTool/BreakwaterTool.csproj" />
+  <Project Path="BreakwaterTool.Tests/BreakwaterTool.Tests.csproj" />
+</Solution>

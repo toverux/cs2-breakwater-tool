@@ -1,0 +1,22 @@
+<Publish>
+  <ModId Value="" />
+  <DisplayName Value="Breakwater Tool" />
+  <ShortDescription Value="Armours breakwaters and revetments with rows of stones, laid over a polygon you draw on the terrain." />
+  <LongDescription># Breakwater Tool
+
+Armours breakwaters and revetments with rows of stones, laid over a polygon you draw on the terrain.</LongDescription>
+  <Thumbnail Value="Properties/Thumbnail.png" />
+  <Tag Value="Code Mod" />
+  <ForumLink Value="" />
+  <ExternalLink Type="discord" Url="https://discord.gg/HTav7ARPs2" />
+  <ExternalLink Type="github" Url="https://github.com/toverux/cs2-breakwater-tool" />
+  <ExternalLink Type="crowdin" Url="https://crowdin.com/project/cs2-breakwater-tool" />
+  <ExternalLink Type="paypal" Url="https://paypal.me/MorganTouverey" />
+  <ExternalLink Type="kofi" Url="https://ko-fi.com/toverux" />
+  <ModVersion Value="2026.0.0" />
+  <GameVersion Value="1.6.*" />
+  <!-- Anarchy: keeps overlapping stones from hiding each other. -->
+  <Dependency Id="74604" />
+  <ChangeLog>- First release.</ChangeLog>
+  <AccessLevel Value="Public" />
+</Publish>
