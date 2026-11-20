@@ -7,6 +7,14 @@
 BreakwaterTool is a C# mod for Cities: Skylines II.
 A mod has two halves talking over cohtml bindings: the C# logic in `BreakwaterTool`, running as ECS systems in the game's world, and the React UI in `BreakwaterTool/UI/src`, hooking onto the game's own React UI.
 
+## Standing goals
+
+Three bars every change is held to, in a review as much as in the work:
+
+- **Exemplary UI/UX**: the tool and its panel read as part of the game; drawing, picking and editing work the way the game's own tools do, every panel element is reachable and operable from the keyboard, and all of it is intuitive: nothing a player has to learn. When a change can be verified by driving the running UI, it is.
+- **Exemplary performance**: a gesture never hitches, a breakwater is laid again as the player lets go, and the tool and its stones cost nothing idle. Measure in the running game before claiming a cost, and resolve a reflection lookup once, at load, never per call.
+- **Exemplary robustness**: Anarchy is foreign code, and the stones depend on it. A bridge that is missing or has changed, a stone it skips, or a call that throws is isolated and logged once with Anarchy's version; the tool then lays nothing rather than unprotected stones, and the rest keeps working. Anarchy and the game update under the mod.
+
 ## Tech stack
 
 - [mise-en-place](https://mise.jdx.dev): manages dev tools, env vars, and tasks for this repo.
@@ -96,6 +104,15 @@ The `cs2-dev` tools restart the game and read its logs, `mod` set to `Breakwater
 The mod logs to `Logs/BreakwaterTool.log` in the game's user data folder, and `mise build` deploys it to `BreakwaterTool/` in the local Mods folder.
 When the game's debugger port (unity) or its UI debugging port (gameface) is unavailable, the `cs2-modding-setup` skill sets them up.
 
+## Save safety
+
+A save outlives the mod: what the mod writes into one stays harmless with the mod removed, and readable by every later release.
+
+- **Removal**: with the mod removed, a save it wrote loads with no error dialog, the objects it laid stay as they were, and its own components drop out silently.
+- **Format**: every serialized type of the mod writes its format version first, the game versioning no mod data, and reads every version a release has written.
+- **Identity**: a save names a serialized type by its assembly-qualified name. Once released, its namespace, name and assembly stay fixed; a rename carries `[FormerlySerializedAs]` with the old name.
+- **Proof**: a change to a serialized type, or to the entities a save keeps, is done when the running game has shown both loads: a save written with the mod, loaded without it, and a save written by the previous release, loaded by the new build.
+
 ## Guidelines
 
 - Build UI from the game's own components and chrome: the `cs2/ui` exports, and the components and class modules the game does not export, reached through `utils/vanilla-modules.ts` with a typed stub under `vanilla-modules` added on demand (its module path from the `cs2-modding-ui` skill). Write custom SCSS only for what vanilla cannot express, so the mod looks native and follows the game's restyles.
@@ -127,6 +144,7 @@ Never:
 Ask first before:
 
 - Changing the bindings wire format shared with the UI.
+- Changing what a released version writes into a save: a serialized type's fields, name, namespace or assembly.
 - Running `mise l10n:push --push`. It writes to the shared Crowdin project, and the approvals it adds stamp a proofreading verdict volunteer translators see and cannot easily undo. Preview first, and keep `--base` to the commits you wrote: a base reaching back across a pull commit pushes volunteers' translations as though they were yours.
 - Running `mise publish` or `mise publish:page`: both write to the live Paradox Mods page every player sees.
 
