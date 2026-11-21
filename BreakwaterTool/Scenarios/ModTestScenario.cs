@@ -1,6 +1,9 @@
 using System;
+using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Colossal;
+using Colossal.Reflection;
 using Colossal.Serialization.Entities;
 using Colossal.TestFramework;
 using Game;
@@ -28,10 +31,26 @@ internal abstract class ModTestScenario : TestScenario {
   /// </summary>
   protected static readonly Hash128 Archipelago = Hash128.Parse("bf8036b291428535b986c757fda3e627");
 
+  // The tests in the order the runner runs them, for the progress overlay.
+  private readonly string[] tests;
+
+  // Shown from the first test on, not from the constructor, which may run without a run.
+  private ProgressOverlay? overlay;
+
   // Counted by Check, reset before each test by ResetChecks.
   private int failedChecks;
 
+  // The test running, from 1, moved on by ResetChecks.
+  private int testIndex;
+
   protected ModTestScenario() {
+    // The runner lists its tests the same way.
+    this.tests = [
+      .. this.GetType()
+        .GetMethodsWithAttributeAndSignature<TestAttribute>(typeof(void), typeof(Task))
+        .Select(static method => ModTestScenario.Words(method.Name))
+    ];
+
     var dismissed = TestScenarioSystem.ConsumeErrorCount();
 
     if (dismissed > 0) {
@@ -43,10 +62,12 @@ internal abstract class ModTestScenario : TestScenario {
   }
 
   /// <summary>
-  /// Returns to the main menu after a scenario that loaded a city.
+  /// Returns to the main menu after a scenario that loaded a city or a map.
   /// </summary>
   protected override async Task OnCleanup() {
-    if (GameManager.instance.gameMode is GameMode.Game) {
+    this.overlay?.End();
+
+    if (GameManager.instance.gameMode.IsGameOrEditor()) {
       await GameManager.instance.MainMenu();
     }
   }
@@ -89,7 +110,26 @@ internal abstract class ModTestScenario : TestScenario {
   /// </summary>
   [TestPrepare]
   [UsedImplicitly]
-  protected void ResetChecks() => this.failedChecks = 0;
+  protected void ResetChecks() {
+    this.failedChecks = 0;
+    this.testIndex++;
+
+    if (this.overlay is null) {
+      var description = this.ToString();
+
+      this.overlay = ProgressOverlay.Start(
+        description[..description.LastIndexOf(" (", StringComparison.Ordinal)],
+        this.tests.Length
+      );
+    }
+
+    this.overlay.StartTest(this.testIndex, this.tests.ElementAtOrDefault(this.testIndex - 1) ?? "");
+  }
+
+  /// <summary>
+  /// Shows a step of the current test on the progress overlay, such as one site of several.
+  /// </summary>
+  protected void Step(string name, int index, int count) => this.overlay?.Step(name, index, count);
 
   /// <summary>
   /// Logs a check as passed or failed, so that a test reports every check and not only the first
@@ -97,6 +137,7 @@ internal abstract class ModTestScenario : TestScenario {
   /// </summary>
   protected void Check(bool passed, string text) {
     TestScenario.log.Info($"  [{(passed ? "PASSED" : "FAILED")}] {text}");
+    this.overlay?.Report(passed, text);
 
     this.failedChecks += passed ? 0 : 1;
   }
@@ -111,4 +152,14 @@ internal abstract class ModTestScenario : TestScenario {
       : Task.FromException(
         new TestScenarioException($"{this.failedChecks} checks failed, see the lines above.")
       );
+
+  /// <summary>
+  /// A test's name in words: <c>Sites_LayAsTheirLayout</c> reads "Sites: lay as their layout".
+  /// </summary>
+  private static string Words(string name) {
+    var parts = name.Split('_');
+    var spaced = parts.Select(static part => Regex.Replace(part, "(?<=[a-z0-9])(?=[A-Z])", " "));
+
+    return string.Join(": ", spaced.Select((part, i) => i == 0 ? part : part.ToLowerInvariant()));
+  }
 }

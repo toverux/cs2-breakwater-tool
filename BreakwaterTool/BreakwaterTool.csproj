@@ -31,6 +31,9 @@
     <Reference Include="Colossal.Core">
       <Private>false</Private>
     </Reference>
+    <Reference Include="Colossal.Mathematics">
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Colossal.Logging">
       <Private>false</Private>
     </Reference>
@@ -88,6 +91,25 @@
        none. -->
   <ItemGroup Condition="'$(Configuration)' != 'Debug'">
     <Compile Remove="Scenarios\**" />
+  </ItemGroup>
+
+  <!-- The proving ground's patches of real terrain, loaded by Scenarios/Ground/ProvingSites.cs by
+       resource name: Ground.<site>. The scenarios' progress overlay draws with Unity's immediate
+       mode GUI, their album encodes PNG, and their save story finds saves among the game's assets. -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <EmbeddedResource Include="Scenarios\Ground\Patches\*.r16" LogicalName="Ground.%(Filename)" />
+    <Reference Include="UnityEngine.IMGUIModule">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Colossal.AssetPipeline">
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>

@@ -29,6 +29,7 @@
   <ItemGroup>
     <Reference Include="Game" HintPath="$(ManagedPath)\Game.dll" />
     <Reference Include="Colossal.Core" HintPath="$(ManagedPath)\Colossal.Core.dll" />
+    <Reference Include="Colossal.Mathematics" HintPath="$(ManagedPath)\Colossal.Mathematics.dll" />
     <Reference Include="Colossal.Logging" HintPath="$(ManagedPath)\Colossal.Logging.dll" />
     <Reference Include="Colossal.IO.AssetDatabase" HintPath="$(ManagedPath)\Colossal.IO.AssetDatabase.dll" />
     <Reference Include="Colossal.UI" HintPath="$(ManagedPath)\Colossal.UI.dll" />

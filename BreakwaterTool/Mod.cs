@@ -1,4 +1,5 @@
 using System;
+using BreakwaterTool.Breakwaters;
 using BreakwaterTool.Logging;
 using BreakwaterTool.Systems;
 using BreakwaterTool.Utils;
@@ -6,6 +7,7 @@ using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using Game;
 using Game.Modding;
+using Game.Serialization;
 using JetBrains.Annotations;
 #if DEBUG
 using BreakwaterTool.Reflection;
@@ -86,9 +88,21 @@ public sealed class Mod : IMod {
       updateSystem.UpdateAt<EntityCounterSystem>(SystemUpdatePhase.ModificationEnd);
       updateSystem.UpdateAt<EntityCounterUISystem>(SystemUpdatePhase.UIUpdate);
 
+      // Where the game creates objects, before the systems that index new ones.
+      updateSystem.UpdateAt<BreakwaterSystem>(SystemUpdatePhase.Modification1);
+      // Before the phase's last CheckPrefabReferencesSystem, which marks the prefabs the systems
+      // before it checked as the ones the save keeps: a map save runs no other.
+      updateSystem.UpdateAfter<BreakwaterPrefabReferencesSystem, SecondaryPrefabReferencesSystem>(
+        SystemUpdatePhase.PrefabReferences
+      );
+
+      // Where the game clears the city it leaves, before it deserializes the one it loads.
+      updateSystem.UpdateBefore<BreakwaterClearSystem>(SystemUpdatePhase.Deserialize);
+
       #if DEBUG
       // Make the in-game test scenarios available to the game's test framework.
       ScenarioRegistry.Register();
+      updateSystem.UpdateAt<LateCallSystem>(SystemUpdatePhase.ModificationEnd);
       #endif
 
       Mod.Log.Verbose($"{nameof(Mod)}: {nameof(this.OnLoad)} complete.");

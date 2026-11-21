@@ -1,0 +1,70 @@
+static class BreakwaterTool.BreakwaterApi
+  static BreakwaterTool.BreakwaterInfo? Read(Unity.Entities.Entity breakwater)
+  static BreakwaterTool.BreakwaterOutcome Create(System.Collections.Generic.IReadOnlyList<Unity.Mathematics.float2> polygon, System.Collections.Generic.IReadOnlyList<Unity.Entities.Entity> stonePrefabs, BreakwaterTool.BreakwaterParameters? parameters = null)
+  static System.String? Delete(Unity.Entities.Entity breakwater)
+  static System.String? Edit(Unity.Entities.Entity breakwater, System.Collections.Generic.IReadOnlyList<Unity.Mathematics.float2>? polygon = null, System.Collections.Generic.IReadOnlyList<Unity.Entities.Entity>? stonePrefabs = null, BreakwaterTool.BreakwaterParameters? parameters = null)
+  static System.String? FitToTerrain(Unity.Entities.Entity breakwater)
+  static Unity.Entities.Entity[] List()
+record BreakwaterTool.BreakwaterInfo
+  BreakwaterTool.BreakwaterInfo <Clone>$()
+  BreakwaterTool.BreakwaterParameters Parameters { get; init; }
+  System.Boolean Equals(BreakwaterTool.BreakwaterInfo? other)
+  System.Boolean Equals(System.Object? obj)
+  System.Int32 GetHashCode()
+  System.String ToString()
+  System.Void Deconstruct(Unity.Mathematics.float2[]& Polygon, Unity.Entities.Entity[]& StonePrefabs, BreakwaterTool.BreakwaterParameters& Parameters, Unity.Entities.Entity[]& Stones)
+  Unity.Entities.Entity[] StonePrefabs { get; init; }
+  Unity.Entities.Entity[] Stones { get; init; }
+  Unity.Mathematics.float2[] Polygon { get; init; }
+  new(Unity.Mathematics.float2[] Polygon, Unity.Entities.Entity[] StonePrefabs, BreakwaterTool.BreakwaterParameters Parameters, Unity.Entities.Entity[] Stones)
+record BreakwaterTool.BreakwaterOutcome
+  BreakwaterTool.BreakwaterOutcome <Clone>$()
+  System.Boolean Equals(BreakwaterTool.BreakwaterOutcome? other)
+  System.Boolean Equals(System.Object? obj)
+  System.Int32 GetHashCode()
+  System.String ToString()
+  System.String? WhyNothing { get; init; }
+  System.Void Deconstruct(Unity.Entities.Entity& Breakwater, System.String?& WhyNothing)
+  Unity.Entities.Entity Breakwater { get; init; }
+  new(Unity.Entities.Entity Breakwater, System.String? WhyNothing)
+record BreakwaterTool.BreakwaterParameters
+  BreakwaterTool.BreakwaterParameters <Clone>$()
+  System.Boolean Equals(BreakwaterTool.BreakwaterParameters? other)
+  System.Boolean Equals(System.Object? obj)
+  System.Boolean IsLongAxisAcross { get; init; }
+  System.Int32 GetHashCode()
+  System.Int32 Layers { get; init; }
+  System.Single Density { get; init; }
+  System.Single Embed { get; init; }
+  System.Single FollowSlope { get; init; }
+  System.Single Irregularity { get; init; }
+  System.Single LevelTops { get; init; }
+  System.Single Mixing { get; init; }
+  System.Single RowRatio { get; init; }
+  System.Single SizeTolerance { get; init; }
+  System.Single Tumble { get; init; }
+  System.Single TurnJitter { get; init; }
+  System.Single UnderLayerDepth { get; init; }
+  System.String ToString()
+  System.String? Validate()
+  System.UInt32 Seed { get; init; }
+  new()
+  static BreakwaterTool.BreakwaterParameters Default
+class BreakwaterTool.Mod
+  System.Void OnDispose()
+  System.Void OnLoad(Game.UpdateSystem updateSystem)
+  new()
+  static BreakwaterTool.Mod Instance { get; }
+  static BreakwaterTool.Settings Settings { get; }
+class BreakwaterTool.Settings
+  BreakwaterTool.Settings+EntityKind CountedEntity { get; set; }
+  Game.Input.ProxyBinding KeyBindingToggleEntityCounter { get; set; }
+  System.Boolean ResetSettings { set; }
+  System.Void SetDefaults()
+  nested EntityKind
+  new(Game.Modding.IMod mod)
+enum BreakwaterTool.Settings+EntityKind
+  System.Int32 value__
+  static BreakwaterTool.Settings+EntityKind Buildings
+  static BreakwaterTool.Settings+EntityKind Citizens
+  static BreakwaterTool.Settings+EntityKind Vehicles
