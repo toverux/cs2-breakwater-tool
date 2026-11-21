@@ -19,11 +19,11 @@ The `cs2-modding` skill's game cycle holds the framework's traps, a success repo
 Two other ways start a scenario in a game already running a Debug build:
 
 - the developer menu (launched with `--developerMode --qaDeveloperMode`): its Test Scenarios tab lists the mod's scenarios under the category's number;
-- the unity eval: `Colossal.TestFramework.TestScenarioSystem.instance.RunScenario("BreakwaterTool: Entity counter", System.Threading.CancellationToken.None)`.
+- the unity eval: `Colossal.TestFramework.TestScenarioSystem.instance.RunScenario("BreakwaterTool: Proving ground", System.Threading.CancellationToken.None)`.
 
 ## Writing a scenario
 
-Copy the shape of [`EntityCounterScenario`](../../../BreakwaterTool/Scenarios/EntityCounterScenario.cs):
+Copy the shape of [`ProvingGroundScenario`](../../../BreakwaterTool/Scenarios/ProvingGroundScenario.cs):
 
 - A class under `BreakwaterTool/Scenarios/`, derived from `ModTestScenario`, with `[TestDescriptor("BreakwaterTool: <name>", ScenarioRegistry.ScenarioCategory)]`.
   The csproj compiles that folder in Debug only, and [`ScenarioRegistry`](../../../BreakwaterTool/Scenarios/ScenarioRegistry.cs), called from `Mod.OnLoad`, adds every scenario of the assembly to the framework.
@@ -32,10 +32,12 @@ Copy the shape of [`EntityCounterScenario`](../../../BreakwaterTool/Scenarios/En
   The framework takes one `[TestPrepare]` method per scenario, and `ModTestScenario` holds it: what a test needs first goes at the start of the test.
 - Start a new city with `await this.StartNewCity(ModTestScenario.Archipelago, <city name>)`, which sets what a new city reads at creation, its starting year among them (the current one unless passed), and returns once the load has ended. Archipelago is in the base game; no save ships with the mod.
 - **Start every other load from the game loop**, as `StartNewCity` does: `await this.WaitFrames(2)` before `GameManager.instance.Load`. A load started from the scenario's caller, the unity eval for one, holds the main thread the load needs, and the game must be killed.
-- Put back in `OnCleanup` whatever the scenario changed that outlives it (a setting, a saved value), then return `base.OnCleanup()`, which returns to the main menu.
+- Put back in `OnCleanup` whatever the scenario changed that outlives it (a setting, a saved value, the Continue a save moves), then return `base.OnCleanup()`, which returns to the main menu.
+  A throw in `OnCleanup` goes unobserved and can kill the game.
 - [`ModTestScenario`](../../../BreakwaterTool/Scenarios/ModTestScenario.cs) dismisses in its constructor the errors pending from before the scenario, which would abort it, and logs how many; an error of the mod's among them still fails the `test` run.
 - Report each check with `this.Check(<passed>, <what was read>)`, which logs a `[PASSED]` or `[FAILED]` line, and end each test on `this.Finish()`, which fails it when one of its checks failed: a run reports every check and not only the first.
 - Keep a check's expected values in the mod's code, beside the logic, when an off-engine test can check them too: one table that the off-engine tests and the scenario both read.
+- A long test names its steps on the overlay with `this.Step(name, index, count)`. `ProvingGroundScenario` is the worked example of a save round trip (`SaveMap`, `SaveCity`, `Load`), a terrain edit (`Raise`) and the exact city check (`CityStones`); lift a helper to `ModTestScenario` when a second scenario needs it.
 
 ## The category
 

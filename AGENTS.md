@@ -44,6 +44,9 @@ TypeScript, one root `tsconfig.json` covering `BreakwaterTool/UI` and `scripts`:
 
 - `BreakwaterTool`: the mod's C# project. `Mod.cs` and `Settings.cs` are its entry point and settings.
   - `Systems`: ECS systems, the UI systems among them, which own the C# side of the bindings.
+  - `Breakwaters`: the feature's ECS side; its systems live here, not in `Systems`.
+  - `Layout`: engine-free, with `ILayoutHost` as its only door to the game.
+  - `Protection`: everything that stamps or converts a stone's protection.
   - `Logging`: the mod-owned logging seam (`IModLog` + `ModLog`, reached through `Mod.Log`), testable off-engine.
   - `Reflection`: accessors reaching into private game internals by reflection.
   - `Utils`: helpers and extensions (localization, input bindings), with `Writers/` for the outbound C# to cohtml binding writers.
@@ -66,7 +69,7 @@ TypeScript, one root `tsconfig.json` covering `BreakwaterTool/UI` and `scripts`:
 - `mise check:agents:oxlint`: Only lints the code, optimized output.
 - `mise fix`: Apply the auto-fixes in place (oxlint `--fix`, oxfmt, then the C# cleanup of `fix:cs`).
 - `mise fix:cs`: Format the C# code in place with jb (ReSharper) cleanupcode. There is no read-only C# formatting check; the build gates the IDE rules.
-  Run it right before each commit that touches C#, and only then, as it is slow. Files it reformats outside your change go in their own `style` commit.
+  Run it right before each commit that touches C#, and only then, as it is slow. Files it reformats outside your change go in their own `style` commit. Edit no C# file while it runs: it writes each file back as it read it at its start.
 - `mise dev`: Watch and rebuild the UI (bundle and CSS module types) on change.
 - `mise test`: Run the off-engine C#, UI and scripts tests.
 - `mise test:cs`: Run the C# tests, in a float32 pass then a float64 pass. Always run them this way, never with a bare `dotnet test` or the IDE: those build the mod in full, post-processed and deployed, which fails while the game holds the DLL, and run the float32 pass alone. `mise test:cs:float32` and `mise test:cs:float64` run one pass, a test filter appended.
@@ -93,7 +96,7 @@ Always run the appropriate check/test commands after changes, at the end of the 
 
 One agent builds a feature and verifies it in the running game, so every feature exposes what that takes:
 
-- Every C# action has a Debug entry point, `#if DEBUG` and static, callable from the unity eval, and the state it changes is readable from there too, as `EntityCounterSystem.DebugCount` is.
+- Every C# action has a Debug entry point, `#if DEBUG` and static, callable from the unity eval, and the state it changes is readable from there too. A system's Debug entry points sit in a `<System>.Debug.cs` partial, as `BreakwaterSystem.Debug.cs` does.
 - Every interactive UI element carries a stable class from its stylesheet, which an agent or a test selects by its prefixed BEM name with the hash left out: `[class*="bwt-<block>-<element>_"]`. No test ids.
 - Every UI↔C# path is a named binding, declared in a `utils/bindings` module on the TS side and in a UI system on the C# side.
 - A behaviour of the game a feature relies on or works around, which a game update can change with no build error and no logged failure, is pinned by a test that turns red when it does, its failure message saying what to change: an off-engine test where the game's assemblies or files show the behaviour, a scenario otherwise. A check that nothing happened carries its control, the same input where it does happen. The candidates are listed before they are written, each with what turns it red and what it costs, and a `cantrips:deputy`, the session's or a fresh one, weighs each one's value against the complexity it adds, in rounds: its verdicts are applied and it judges again, until a round keeps every test as it stands.
