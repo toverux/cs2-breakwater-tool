@@ -25,8 +25,8 @@ Invariants, here as on any backend: an annotation appends without disturbing wha
 
 ## Knowledge stores
 
-- `docs/adr/` — **disabled**.
-- `docs/solutions/` — **disabled**.
+- `docs/adr/` — **enabled**.
+- `docs/solutions/` — **enabled**.
 
 ## Roadmap
 
