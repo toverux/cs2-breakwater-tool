@@ -5,6 +5,7 @@
 // It reproduces the game's module contract: `<id>.mjs`, an ES module whose `default` and `hasCSS`
 // exports src/index.tsx declares, `<id>.css` beside it, images under `images/` served from
 // `coui://ui-mods/`, game modules resolved from `window`, and the manifest banner on top.
+// An SVG ships shrunk by svgo, its source left as drawn.
 //
 // Run it through `mise build:ui`, or `mise dev` to rebuild on every change under src/.
 
@@ -18,6 +19,7 @@ import { camelCase, camelCaseTransformMerge } from 'change-case';
 import postcss from 'postcss';
 import postcssModules from 'postcss-modules';
 import { compile as compileSass } from 'sass';
+import { optimize as optimizeSvg } from 'svgo';
 import mod from './mod.json' with { type: 'json' };
 
 const localModsPath = process.env.CSII_LOCALMODSPATH;
@@ -190,12 +192,24 @@ async function bundle(): Promise<boolean> {
       path.join(outputDirectory, `${mod.id}.mjs.LICENSE.txt`),
       Bun.file(path.join(import.meta.dir, '../../node_modules/react/LICENSE'))
     ),
-    ...images.map(image => Bun.write(path.join(outputDirectory, image.path), image))
+    ...images.map(async image =>
+      Bun.write(path.join(outputDirectory, image.path), await shippedImage(image))
+    )
   ]);
 
   console.log(`Built ${mod.id} to ${outputDirectory} (${images.length} images).`);
 
   return true;
+}
+
+// An SVG goes through svgo's default preset, which rewrites its markup and changes no pixel; any
+// other image ships as built.
+async function shippedImage(image: Bun.BuildArtifact): Promise<Bun.BuildArtifact | string> {
+  if (!image.path.endsWith('.svg')) {
+    return image;
+  }
+
+  return optimizeSvg(await image.text(), { path: image.path }).data;
 }
 
 function windowExternalsPlugin(): Bun.BunPlugin {

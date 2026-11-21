@@ -29,7 +29,7 @@ mise test:cs:float64 --filter-method '*ReadBack*'
 ## Where testable logic goes
 
 - An ECS system **cannot be instantiated** off-engine: it needs a world.
-  Give the logic it holds a pure, `internal static` home the system calls, and test that, as [`EntityCounterSystem.CountChunkEntities`](../../../BreakwaterTool/Systems/EntityCounterSystem.cs) and its [tests](../../../BreakwaterTool.Tests/Systems/EntityCounterSystemTests.cs) do.
+  Give the logic it holds a pure, `internal static` home the system calls, and test that, as [`GroundCheck.Judge`](../../../BreakwaterTool/Layout/GroundCheck.cs), which the tool system calls each frame, and its [tests](../../../BreakwaterTool.Tests/Layout/GroundCheckTests.cs) do.
   A Burst job's body is the same: the static method it calls runs here.
 - Logic that grows past a helper goes in a plain class constructed without the engine, its engine-bound collaborators passed in behind a mod-owned interface.
 - A seam earns its place when an off-engine test pins behaviour behind it: data a system reads and binds unchanged stays in the system rather than relaying through such a class.

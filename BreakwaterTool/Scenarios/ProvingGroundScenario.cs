@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BreakwaterTool.Breakwaters;
 using BreakwaterTool.Layout;
 using BreakwaterTool.Scenarios.Ground;
+using BreakwaterTool.Systems;
 using Colossal;
 using Colossal.IO.AssetDatabase;
 using Colossal.Serialization.Entities;
@@ -18,6 +19,7 @@ using Game.Objects;
 using Game.Prefabs;
 using Game.SceneFlow;
 using Game.Simulation;
+using Game.Tools;
 using Game.UI;
 using Game.UI.Editor;
 using Game.UI.Menu;
@@ -149,6 +151,102 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
       "The game maps the world onto them as the off-engine fixtures do: same resolution, scale " +
       "and offset."
     );
+
+    await this.Finish();
+  }
+
+  [Test]
+  [UsedImplicitly]
+  private async Task EditorToolbar_EntersTheTool() {
+    await this.EnsureGround();
+
+    var toolbar = this.World.GetExistingSystemManaged<EditorToolUISystem>();
+    var panels = this.World.GetExistingSystemManaged<EditorPanelUISystem>();
+    var tool = this.World.GetExistingSystemManaged<BreakwaterToolSystem>();
+    var button = toolbar.tools
+      .OfType<EditorTool>()
+      .FirstOrDefault(static candidate => candidate.id == BreakwaterToolSystem.Id);
+
+    this.Check(
+      button is not null && button.tool == tool,
+      $"The editor's toolbar lists the tool: {button?.id ?? "no button"}. If not: the game no " +
+      $"longer reads {nameof(EditorToolUISystem)}.{nameof(EditorToolUISystem.tools)}, which " +
+      "BreakwaterToolUISystem.AddEditorTool appends to."
+    );
+
+    if (button is not null) {
+      toolbar.activeTool = button;
+
+      await this.WaitFrames(5);
+
+      this.Check(
+        tool.IsActive && panels.activePanel is BreakwaterToolPanelSystem,
+        $"Its button enters the tool and opens its panel: active {tool.IsActive}, panel " +
+        $"{panels.activePanel?.GetType().Name ?? "none"}."
+      );
+
+      toolbar.activeTool = null;
+
+      await this.WaitFrames(5);
+
+      this.Check(!tool.IsActive, $"Leaving the button leaves the tool: active {tool.IsActive}.");
+
+      // Entered and left by its key, the tool goes through the toolbar as its button does, or the
+      // Object tool loses the prefab it stores from the tool system as it is disabled.
+      var objectTool = toolbar.tools.OfType<EditorPrefabTool>().First();
+      var toolSystem = this.World.GetExistingSystemManaged<ToolSystem>();
+      var prefabs = this.World.GetExistingSystemManaged<PrefabSystem>();
+      var boulder = prefabs.GetPrefab<StaticObjectPrefab>(
+        BreakwaterSystem.DebugPrefabs("Boulder01")[0]
+      );
+
+      toolbar.activeTool = objectTool;
+
+      await this.WaitFrames(5);
+
+      // The Object tool keeps the boulder only until the next load clears its choice (decompile:
+      // PrefabToolPanelSystem.OnGameLoaded), so the choice needs no putting back.
+      toolSystem.ActivatePrefabTool(boulder);
+
+      await this.WaitFrames(5);
+
+      var chosen = toolSystem.activePrefab;
+
+      tool.Toggle();
+
+      await this.WaitFrames(5);
+
+      var wasActive = tool.IsActive;
+
+      tool.Toggle();
+
+      await this.WaitFrames(5);
+
+      toolbar.activeTool = objectTool;
+
+      await this.WaitFrames(5);
+
+      this.Check(
+        chosen == boulder && wasActive && toolSystem.activePrefab == boulder,
+        $"Entered and left by its key, the tool leaves the Object tool its prefab: chosen " +
+        $"{chosen?.name ?? "none"}, tool active {wasActive}, kept " +
+        $"{toolSystem.activePrefab?.name ?? "none"}. If not: " +
+        $"{nameof(BreakwaterToolSystem)}.{nameof(BreakwaterToolSystem.Toggle)} no longer goes " +
+        "through the editor's toolbar, or the toolbar no longer disables the outgoing tool " +
+        "while it is still the tool system's active one; either way the tool system already " +
+        "holds another tool when EditorPrefabTool.OnDisable stores the Object tool's prefab."
+      );
+
+      toolbar.activeTool = null;
+
+      await this.WaitFrames(5);
+
+      // EditorTool.OnDisable resets the tool system only where EditorTool.tool is set, which
+      // EditorPrefabTool never sets (decompile), so the step resets it for the tests after.
+      toolSystem.ActivatePrefabTool(null);
+
+      await this.WaitFrames(5);
+    }
 
     await this.Finish();
   }
@@ -394,8 +492,8 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
       $"Read gives the jetty as laid: {info?.Polygon.Length} points, {info?.Stones.Length} stones."
     );
 
-    // A stone moved by hand before the pick: only the pick's own stones hold it after the revert,
-    // and no fresh lay of the jetty's parameters does.
+    // A stone moved by hand before the snapshot: only the snapshot's own stones hold it after the
+    // revert, and no fresh lay of the jetty's parameters does.
     var manager = this.World.EntityManager;
     var nudgedStone = BreakwaterApi.Read(jetty)!.Stones[0];
     var nudged = manager.GetComponentData<Transform>(nudgedStone);
@@ -403,11 +501,11 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
     nudged.m_Position.x += 1f;
     manager.SetComponentData(nudgedStone, nudged);
 
-    var picked = CityStones.ByRecord(this.World)[jetty];
+    var snapshotStones = CityStones.ByRecord(this.World)[jetty];
 
     this.Check(
-      BreakwaterSystem.DebugPick(jetty).StartsWith("picked", StringComparison.Ordinal),
-      "The jetty is picked, a stone of it moved by hand."
+      BreakwaterSystem.DebugSnapshot(jetty).StartsWith("snapshot", StringComparison.Ordinal),
+      "A snapshot of the jetty is taken, a stone of it moved by hand."
     );
 
     this.Check(
@@ -424,16 +522,16 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
 
     this.Expect(jetty);
     this.CheckCity("Edited to another seed, the jetty");
-    this.Check(BreakwaterSystem.DebugRevert() is null, "The jetty is reverted to its pick.");
+    this.Check(BreakwaterSystem.DebugRevert() is null, "The jetty is reverted to its snapshot.");
 
     await this.WaitFrames(2);
 
-    this.expected[jetty] = picked;
-    this.CheckCity("Reverted to its pick, the jetty has its stone moved by hand");
+    this.expected[jetty] = snapshotStones;
+    this.CheckCity("Reverted to its snapshot, the jetty has its stone moved by hand");
 
     this.Check(
       BreakwaterApi.Read(jetty)?.Parameters == jettySite.Parameters,
-      "Reverted, the jetty reads its parameters as picked."
+      "Reverted, the jetty reads its parameters as at the snapshot."
     );
 
     // A player's hand: a whole breakwater bulldozed stone by stone, as the bulldozer deletes, and

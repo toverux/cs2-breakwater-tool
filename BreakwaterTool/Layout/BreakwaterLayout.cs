@@ -180,7 +180,7 @@ internal static class BreakwaterLayout {
   /// Where no edge is, the low part is a corner, on a slope falling across the outline: the toe is
   /// then the two edges that meet there.
   /// </summary>
-  private static bool[] ToeEdges(IReadOnlyList<float2> polygon, ILayoutHost host) {
+  internal static bool[] ToeEdges(IReadOnlyList<float2> polygon, ILayoutHost host) {
     var heights = polygon.Select(host.HeightAt).ToArray();
     var low = heights.Min();
     var high = heights.Max();

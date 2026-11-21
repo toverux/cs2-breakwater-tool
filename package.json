@@ -25,6 +25,7 @@
     "postcss": "^8.5.32",
     "postcss-modules": "^9.0.1",
     "sass": "~1.78.0",
+    "svgo": "^4.1.0",
     "typed-scss-modules": "^8.1.1",
     "typescript": "^7.0.2"
   },

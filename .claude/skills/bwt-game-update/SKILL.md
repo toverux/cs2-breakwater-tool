@@ -25,7 +25,7 @@ The game must be closed for the build steps.
 - **The UI test harness.** `mise test:ui`: an "anchor not found" error means the bundle's React wrapper modules moved, and the `bwt-ui-testing` skill's harness internals say how to find them again.
 - **The vanilla stubs.** Each module path and export under [`UI/src/vanilla-modules`](../../../BreakwaterTool/UI/src/vanilla-modules) still exists in the readable bundle, with the props the stub declares. A missing one falls back at runtime and reports once in the game's error dialog; `vanilla-modules.test.ts` fails on a missing module or export, and a prop the stub declares is checked against the bundle by hand.
 - **The reflection accessors.** Each private member a class of [`Reflection`](../../../BreakwaterTool/Reflection) reaches still exists in the decompile under that name, with that signature: a missing one fails only when the mod first reaches it.
-- **The mods menu.** `UniversalModMenu`, the anchor [`entity-counter/index.ts`](../../../BreakwaterTool/UI/src/entity-counter/index.ts) appends to, is still a registry location in the bundle, and the mod's button shows in the game's mods menu (step 5). Likewise for every other location the mod's registrars append to or extend.
+- **The mods menu.** `UniversalModMenu`, the anchor [`breakwater-tool/index.tsx`](../../../BreakwaterTool/UI/src/breakwater-tool/index.tsx) appends to, is still a registry location in the bundle, and the mod's button shows in the game's mods menu (step 5). Likewise for every other location the mod's registrars append to or extend.
 - **The toolchain hooks.** The csproj relies on the toolchain's `Mod.targets` (in `$CSII_TOOLPATH`) for the `DeployWIP` and `ModPostProcessorConfig` targets, the `NeedBuild` property its cleanup and post-build targets check, and the ` -p macOS` and ` -p Linux` flags of `ModPostProcessorArgs` the Debug Burst trim strips: each is still there under that name.
 - **The pins.** The React version the game ships (the `"18.x.y"` string in `Cities2_Data/Content/Game/UI/index.js`) still matches the pin; [`dependency-updates.md`](../../../docs/agents/dependency-updates.md) holds every pin and what would let it move.
 
@@ -43,4 +43,4 @@ The first `mise test:cs` after an update is slower: it widens the game's new ass
 
 ## 5. One game cycle
 
-Run one cycle through the `cs2-dev` tools, `restart` with `mod` set to `BreakwaterTool` and a new city: the mod loads from the local build, its UI renders where it did, its settings page opens, and its log holds no error.
+Run one cycle through the `cs2-dev` tools, `restart` with `mod` set to `BreakwaterTool` and a new city: the mod loads from the local build, its UI renders where it did, its settings page opens, the Landscaping item and the editor's toolbar button read "Breakwater Tool" rather than a localization id, and its log holds no error.

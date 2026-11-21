@@ -26,5 +26,3 @@ This mod started from [Greenfield Mod Template](https://github.com/CitiesSkyline
 Run `mise tasks` for the full list.
 
 An agent restarts the game and runs the in-game scenarios with the `cs2-modding` plugin's `cs2-dev` tools.
-
-The entity counter is a sample: it shows how the C# systems, the bindings and the UI connect. The template's README lists its files, for when you delete it.

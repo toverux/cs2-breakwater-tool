@@ -1,4 +1,3 @@
-using System;
 using BreakwaterTool.Utils;
 using Colossal.IO.AssetDatabase;
 using Colossal.UI.Binding;
@@ -10,15 +9,16 @@ using JetBrains.Annotations;
 namespace BreakwaterTool;
 
 [FileLocation($"ModsSettings/{nameof(BreakwaterTool)}/{nameof(BreakwaterTool)}")]
-[SettingsUIGroupOrder(Settings.GroupEntityCounter, Settings.GroupAdvanced)]
-[SettingsUIShowGroupName(Settings.GroupEntityCounter, Settings.GroupAdvanced)]
+[SettingsUIGroupOrder(Settings.GroupTool, Settings.GroupAdvanced)]
+[SettingsUIShowGroupName(Settings.GroupTool, Settings.GroupAdvanced)]
 [SettingsUIKeyboardAction(
-  nameof(Settings.KeyBindingToggleEntityCounter),
+  nameof(Settings.KeyBindingToggleTool),
   Usages.kDefaultUsage,
-  Usages.kToolUsage
+  Usages.kToolUsage,
+  Usages.kEditorUsage
 )]
 public sealed class Settings : ModSetting, IJsonWritable {
-  private const string GroupEntityCounter = "EntityCounter";
+  private const string GroupTool = "Tool";
 
   private const string GroupAdvanced = "Advanced";
 
@@ -27,21 +27,11 @@ public sealed class Settings : ModSetting, IJsonWritable {
   }
 
   /// <summary>
-  /// What the entity counter panel counts.
+  /// Keyboard shortcut opening and leaving Breakwater Tool, in a game and in the editor.
   /// </summary>
-  [SettingsUISection(Settings.GroupEntityCounter)]
-  public EntityKind CountedEntity { get; set; }
-
-  /// <summary>
-  /// Keyboard shortcut opening and closing the entity counter panel.
-  /// </summary>
-  [SettingsUISection(Settings.GroupEntityCounter)]
-  [SettingsUIKeyboardBinding(
-    BindingKeyboard.K,
-    nameof(Settings.KeyBindingToggleEntityCounter),
-    ctrl: true
-  )]
-  public ProxyBinding KeyBindingToggleEntityCounter { get; set; }
+  [SettingsUISection(Settings.GroupTool)]
+  [SettingsUIKeyboardBinding(BindingKeyboard.B, nameof(Settings.KeyBindingToggleTool), ctrl: true)]
+  public ProxyBinding KeyBindingToggleTool { get; set; }
 
   [SettingsUIButton]
   [SettingsUIConfirmation]
@@ -63,7 +53,9 @@ public sealed class Settings : ModSetting, IJsonWritable {
   /// Do NOT initialize the properties inline instead, as this method is also the reset path of
   /// <see cref="ResetSettings"/>.
   /// </summary>
-  public override void SetDefaults() => this.CountedEntity = EntityKind.Buildings;
+  public override void SetDefaults() {
+    // Every setting is a key binding so far, which ResetKeyBindings restores.
+  }
 
   /// <summary>
   /// Restores the default of every string setting that came back null from the settings file.
@@ -80,28 +72,6 @@ public sealed class Settings : ModSetting, IJsonWritable {
   /// </summary>
   void IJsonWritable.Write(IJsonWriter writer) {
     writer.TypeBegin(this.GetType().FullName);
-
-    writer.PropertyName("countedEntity");
-    writer.Write(
-      this.CountedEntity switch {
-        EntityKind.Buildings => "buildings",
-        EntityKind.Citizens => "citizens",
-        EntityKind.Vehicles => "vehicles",
-        _ => throw new InvalidOperationException($"Unknown entity kind {this.CountedEntity}.")
-      }
-    );
-
     writer.TypeEnd();
-  }
-
-  /// <summary>
-  /// The entities the entity counter counts, by the component that identifies them.
-  /// </summary>
-  public enum EntityKind {
-    Buildings,
-
-    Citizens,
-
-    Vehicles
   }
 }

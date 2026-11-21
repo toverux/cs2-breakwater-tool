@@ -6,18 +6,10 @@ const GROUP = 'breakwaterTool.common';
 /**
  * The settings the UI reads, see C# `BreakwaterTool.Settings` for documentation.
  */
-export interface ModSettings {
-  readonly countedEntity: CountedEntity;
-}
+// oxlint-disable-next-line typescript/no-empty-interface, typescript/no-empty-object-type
+export interface ModSettings {}
 
-/**
- * Serialization of C# `BreakwaterTool.Settings.CountedEntity`, camelCase.
- */
-export type CountedEntity = 'buildings' | 'citizens' | 'vehicles';
-
-const settings$ = lazyBindValue<ModSettings>(GROUP, 'settings', {
-  countedEntity: 'buildings'
-});
+const settings$ = lazyBindValue<ModSettings>(GROUP, 'settings', {});
 
 export function useModSettings(): ModSettings {
   return useValue(settings$());

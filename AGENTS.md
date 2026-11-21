@@ -46,11 +46,12 @@ TypeScript, one root `tsconfig.json` covering `BreakwaterTool/UI` and `scripts`:
   - `Systems`: ECS systems, the UI systems among them, which own the C# side of the bindings.
   - `Breakwaters`: the feature's ECS side; its systems live here, not in `Systems`.
   - `Layout`: engine-free, with `ILayoutHost` as its only door to the game.
+  - `Gestures`: the tool's drawing and editing rules, engine-free: pointer events in, edits out.
   - `Protection`: everything that stamps or converts a stone's protection.
   - `Logging`: the mod-owned logging seam (`IModLog` + `ModLog`, reached through `Mod.Log`), testable off-engine.
   - `Reflection`: accessors reaching into private game internals by reflection.
-  - `Utils`: helpers and extensions (localization, input bindings), with `Writers/` for the outbound C# to cohtml binding writers.
-  - `Scenarios`: the in-game test scenarios, compiled in Debug only.
+  - `Utils`: helpers and extensions (localization, input bindings).
+  - `Scenarios`: the in-game test scenarios, compiled in Debug only; `ProgressOverlay` draws their progress panel.
   - `Locales`: one JSON per game locale, `en-US.json` the source.
   - `Properties`: the Paradox Mods publish configuration, its profiles and images; `ChangeLog.md` and `LongDescription.md` beside the csproj are the sources the build copies into it.
 - `BreakwaterTool/UI/src`: the React frontend. `utils/bindings` is the typed C#↔TS binding facade, one module per binding group; `vanilla-modules` holds typed stubs for game UI internals; `components` the shared components; `testing` the UI test harness. UI tests are colocated `*.test.ts` / `*.test.tsx` files.
@@ -100,6 +101,7 @@ One agent builds a feature and verifies it in the running game, so every feature
 - Every interactive UI element carries a stable class from its stylesheet, which an agent or a test selects by its prefixed BEM name with the hash left out: `[class*="bwt-<block>-<element>_"]`. No test ids.
 - Every UI↔C# path is a named binding, declared in a `utils/bindings` module on the TS side and in a UI system on the C# side.
 - A behaviour of the game a feature relies on or works around, which a game update can change with no build error and no logged failure, is pinned by a test that turns red when it does, its failure message saying what to change: an off-engine test where the game's assemblies or files show the behaviour, a scenario otherwise. A check that nothing happened carries its control, the same input where it does happen. The candidates are listed before they are written, each with what turns it red and what it costs, and a `cantrips:deputy`, the session's or a fresh one, weighs each one's value against the complexity it adds, in rounds: its verdicts are applied and it judges again, until a round keeps every test as it stands.
+- A defect found on a player's city is tested as the smallest synthetic case that breaks the rule, never as that city.
 - A feature is done when an agent has driven it in the running game (the unity eval for C#, the gameface `game_*` tools for the UI, the `cs2-dev` tools around both) and pinned what is stable as an in-game scenario or a UI test.
 
 Drive the running game yourself to verify a change, during a review or simplify pass as much as during the work itself.

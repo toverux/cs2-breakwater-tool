@@ -3,22 +3,8 @@
   "BreakwaterTool.Common.RECOVERABLE_ERROR": "Błąd nie jest krytyczny, możesz go zignorować i kontynuować grę.",
   "BreakwaterTool.Common.FATAL_ERROR": "Błąd jest krytyczny i może mieć niezamierzone skutki: zapisz miasto, uruchom grę ponownie, a jeśli problem się powtórzy, wyłącz mod.",
   "Options.SECTION[BreakwaterTool.BreakwaterTool.Mod]": "Breakwater Tool",
-  "Options.GROUP[BreakwaterTool.BreakwaterTool.Mod.EntityCounter]": "Licznik obiektów",
-  "Options.OPTION[BreakwaterTool.BreakwaterTool.Mod.Settings.CountedEntity]": "Liczone obiekty",
-  "Options.OPTION_DESCRIPTION[BreakwaterTool.BreakwaterTool.Mod.Settings.CountedEntity]": "Co panel licznika obiektów liczy w całym mieście.",
-  "Options.BreakwaterTool.BreakwaterTool.Mod.ENTITYKIND[Buildings]": "Budynki",
-  "Options.BreakwaterTool.BreakwaterTool.Mod.ENTITYKIND[Citizens]": "Mieszkańcy",
-  "Options.BreakwaterTool.BreakwaterTool.Mod.ENTITYKIND[Vehicles]": "Pojazdy",
-  "Options.OPTION[BreakwaterTool.BreakwaterTool.Mod.Settings.KeyBindingToggleEntityCounter]": "Pokaż/ukryj licznik obiektów",
-  "Options.OPTION_DESCRIPTION[BreakwaterTool.BreakwaterTool.Mod.Settings.KeyBindingToggleEntityCounter]": "Skrót klawiszowy otwierający i zamykający panel licznika obiektów.",
   "Options.GROUP[BreakwaterTool.BreakwaterTool.Mod.Advanced]": "Ustawienia zaawansowane",
   "Options.OPTION[BreakwaterTool.BreakwaterTool.Mod.Settings.ResetSettings]": "Zresetuj ustawienia",
   "Options.OPTION_DESCRIPTION[BreakwaterTool.BreakwaterTool.Mod.Settings.ResetSettings]": "Zresetuj wszystkie ustawienia moda do wartości domyślnych.",
-  "Options.WARNING[BreakwaterTool.BreakwaterTool.Mod.Settings.ResetSettings]": "Zresetować wszystkie ustawienia moda do wartości domyślnych?",
-  "BreakwaterTool.EntityCounter.TITLE": "Licznik obiektów",
-  "BreakwaterTool.EntityCounter.DESCRIPTION": "Liczy budynki, mieszkańców lub pojazdy w twoim mieście.",
-  "BreakwaterTool.EntityCounter.COUNTED[buildings]": "{KEY=Options.BreakwaterTool.BreakwaterTool.Mod.ENTITYKIND[Buildings]}",
-  "BreakwaterTool.EntityCounter.COUNTED[citizens]": "{KEY=Options.BreakwaterTool.BreakwaterTool.Mod.ENTITYKIND[Citizens]}",
-  "BreakwaterTool.EntityCounter.COUNTED[vehicles]": "{KEY=Options.BreakwaterTool.BreakwaterTool.Mod.ENTITYKIND[Vehicles]}",
-  "BreakwaterTool.EntityCounter.DATE": "Data"
+  "Options.WARNING[BreakwaterTool.BreakwaterTool.Mod.Settings.ResetSettings]": "Zresetować wszystkie ustawienia moda do wartości domyślnych?"
 }

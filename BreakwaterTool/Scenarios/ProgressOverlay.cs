@@ -174,19 +174,31 @@ internal sealed class ProgressOverlay : MonoBehaviour {
     GUI.Label(row, $"<color=#9aa>{seconds / 60}:{seconds % 60:00}</color>", this.right);
     row.y += line;
 
-    this.Bar(row, unit, this.testIndex, this.testCount, ProgressOverlay.Accent);
-    GUI.Label(row, $"{this.testIndex} / {this.testCount}", this.right);
+    var tests = $"{this.testIndex} / {this.testCount}";
+
+    GUI.Label(row, tests, this.right);
+    this.Bar(
+      ProgressOverlay.LeftOf(row, this.right, tests, unit),
+      unit,
+      this.testIndex,
+      this.testCount,
+      ProgressOverlay.Accent
+    );
     row.y += line;
 
     GUI.Label(row, this.test, this.text);
     row.y += line;
 
     if (this.stepCount > 0) {
-      this.Bar(row, unit, this.stepIndex, this.stepCount, ProgressOverlay.Accent * 0.8f);
-      GUI.Label(
-        row,
-        $"<color=#9aa>{this.step}</color>  {this.stepIndex} / {this.stepCount}",
-        this.right
+      var steps = $"<color=#9aa>{this.step}</color>  {this.stepIndex} / {this.stepCount}";
+
+      GUI.Label(row, steps, this.right);
+      this.Bar(
+        ProgressOverlay.LeftOf(row, this.right, steps, unit),
+        unit,
+        this.stepIndex,
+        this.stepCount,
+        ProgressOverlay.Accent * 0.8f
       );
       row.y += line;
     }
@@ -221,15 +233,21 @@ internal sealed class ProgressOverlay : MonoBehaviour {
   }
 
   /// <summary>
-  /// A bar filled to a share, on the left two thirds of a row.
+  /// The part of a row left of the label that closes it on the right, a gap apart.
+  /// </summary>
+  private static Rect LeftOf(Rect row, GUIStyle style, string label, float unit) =>
+    new(
+      row.x,
+      row.y,
+      Mathf.Max(0f, row.width - style.CalcSize(new GUIContent(label)).x - unit),
+      row.height
+    );
+
+  /// <summary>
+  /// A bar filled to a share, across a row.
   /// </summary>
   private void Bar(Rect row, float unit, int done, int count, Color colour) {
-    var track = new Rect(
-      row.x,
-      row.y + (row.height / 2f) - (unit * 0.3f),
-      row.width * 0.66f,
-      unit * 0.6f
-    );
+    var track = new Rect(row.x, row.y + (row.height / 2f) - (unit * 0.3f), row.width, unit * 0.6f);
 
     this.Fill(track, ProgressOverlay.Track);
     this.Fill(

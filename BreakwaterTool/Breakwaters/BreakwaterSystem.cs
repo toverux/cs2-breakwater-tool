@@ -48,7 +48,8 @@ namespace BreakwaterTool.Breakwaters {
     private EntityQuery stonesQuery;
 
     /// <summary>
-    /// The diagnostics of the last layout an operation ran, laid or not.
+    /// The diagnostics of the layout the last operation ran, laid or not, or null when it refused
+    /// before laying out.
     /// </summary>
     internal LayoutResult? LastLayout { get; private set; }
 
@@ -61,6 +62,17 @@ namespace BreakwaterTool.Breakwaters {
     /// Why the last update failed to lay a breakwater's stones, or null when it did not.
     /// </summary>
     internal string? LastFailure { get; private set; }
+
+    /// <summary>
+    /// Changes whenever a breakwater is created, changed or deleted, or the city changes: what a
+    /// reader of the records compares to know whether to read them again.
+    /// </summary>
+    internal uint Revision { get; private set; }
+
+    /// <summary>
+    /// Anarchy's bridge, or null when it is missing.
+    /// </summary>
+    internal AnarchyBridgeLink? Anarchy => this.protection.Link;
 
     /// <summary>
     /// Lays a new breakwater.
@@ -141,6 +153,7 @@ namespace BreakwaterTool.Breakwaters {
       }
 
       this.Queue(record, null, null);
+      this.Revision++;
 
       return null;
     }
@@ -216,6 +229,20 @@ namespace BreakwaterTool.Breakwaters {
     }
 
     /// <summary>
+    /// Whether an entity is a breakwater's record, neither deleted nor waiting for its deletion.
+    /// </summary>
+    internal bool IsBreakwater(Entity record) =>
+      this.EntityManager.Exists(record) &&
+      this.EntityManager.HasComponent<BreakwaterRecord>(record) &&
+      !this.EntityManager.HasComponent<Deleted>(record) &&
+      !(this.pending.TryGetValue(record, out var lay) && lay.Stones is null);
+
+    /// <summary>
+    /// The stones a new breakwater lays until the player chooses others.
+    /// </summary>
+    internal Entity[] DefaultChoice() => this.catalog.DefaultChoice();
+
+    /// <summary>
     /// The city's breakwaters.
     /// </summary>
     internal Entity[] List() => [
@@ -261,6 +288,7 @@ namespace BreakwaterTool.Breakwaters {
 
       // Waiting work belongs to the city being left.
       this.pending.Clear();
+      this.Revision++;
     }
 
     protected override void OnUpdate() {
@@ -275,6 +303,8 @@ namespace BreakwaterTool.Breakwaters {
       foreach (var (record, lay) in work) {
         var current = this.Stones(record);
 
+        this.Revision++;
+
         if (lay.Stones is null) {
           this.MarkDeleted(current);
           this.EntityManager.AddComponent<Deleted>(record);
@@ -282,8 +312,9 @@ namespace BreakwaterTool.Breakwaters {
           continue;
         }
 
-        // The new stones first: when they cannot be protected, the old ones and their record stay,
-        // and a breakwater not laid yet goes.
+        // The new stones first, never the old ones moved in place, which leaves the bridge's update
+        // call unused: when they cannot be protected, the old ones and their record stay, and a
+        // breakwater not laid yet goes.
         if (this.Lay(record, lay.Stones) is {} failure) {
           this.LastFailure = failure;
 
@@ -313,6 +344,7 @@ namespace BreakwaterTool.Breakwaters {
     /// <returns>Why nothing can be laid, or null.</returns>
     private string? Plan(BreakwaterState state, out StoneState[] stones) {
       stones = [];
+      this.LastLayout = null;
 
       if (!GameManager.instance.gameMode.IsGameOrEditor()) {
         return "no city or map is loaded";
@@ -453,12 +485,6 @@ namespace BreakwaterTool.Breakwaters {
       this.EntityManager.AddComponent<Deleted>(array);
     }
 
-    private bool IsBreakwater(Entity record) =>
-      this.EntityManager.Exists(record) &&
-      this.EntityManager.HasComponent<BreakwaterRecord>(record) &&
-      !this.EntityManager.HasComponent<Deleted>(record) &&
-      !(this.pending.TryGetValue(record, out var lay) && lay.Stones is null);
-
     /// <summary>
     /// Leaves a breakwater's stones for the next update, which puts its record back as it was
     /// before the first operation still waiting when they cannot be laid.
@@ -474,6 +500,8 @@ namespace BreakwaterTool.Breakwaters {
       );
 
     private void Write(Entity record, BreakwaterState state) {
+      this.Revision++;
+
       this.EntityManager.SetComponentData(
         record,
         new BreakwaterRecord(state.Parameters, state.Protection)

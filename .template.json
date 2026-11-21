@@ -3,7 +3,7 @@
   "templateCommit": "376505cabbcdd5c011d11422b0321bc4a570d369",
   "initialCommit": "25cc8dc99bc715694d3a2aac608ec6fbfaf26b55",
   "parts": {
-    "sample-slice": true,
+    "sample-slice": false,
     "ui-tests": true,
     "game-tests": true,
     "crowdin": true,

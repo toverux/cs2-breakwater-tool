@@ -61,13 +61,14 @@ const translations = new Map<string, string>();
 
 // Game state vanilla controls read from a default-less binding, answered unless a test configures
 // it: every tutorial target (a vanilla tab, for one) asks for the running tutorial, null being
-// none, a text field asks whether an input barrier holds the keyboard, and a key's icons ask which
-// gamepad's glyphs and keyboard layout to draw, 0 being the Xbox's and the detected layout, with no
-// key remapped by it.
+// none, a text field asks whether an input barrier holds the keyboard, a tool options button asks
+// whether the player chose the legacy interface, and a key's icons ask which gamepad's glyphs and
+// keyboard layout to draw, 0 being the Xbox's and the detected layout, with no key remapped by it.
 const gameBindingValues: ReadonlyMap<string, unknown> = new Map<string, unknown>([
   ['tutorials.activeTutorial', null],
   ['tutorials.activeTutorialPhase', null],
   ['input.useTextFieldInputBarrier', false],
+  ['options.useLegacyInterface', false],
   ['options.inputHintsType', 0],
   ['options.keyboardLayout', 0],
   ['options.layoutMap', {}]
@@ -155,6 +156,23 @@ export function emitEvent(name: string, ...args: readonly unknown[]): void {
 }
 
 /**
+ * The game's UI bundle as the installed game ships it, for a test that pins what no module export
+ * shows, such as the name of a slot the game renders.
+ */
+export function readGameBundle(): string {
+  const installPath = process.env.CSII_INSTALLATIONPATH;
+
+  if (!installPath) {
+    throw new Error(`CSII_INSTALLATIONPATH is not set`);
+  }
+
+  return readFileSync(
+    path.join(installPath, 'Cities2_Data', 'Content', 'Game', 'UI', 'index.js'),
+    'utf8'
+  );
+}
+
+/**
  * Registers the DOM and the mock engine, then loads the game bundle best-effort.
  * The mock engine is installed unconditionally (cheap, harmless to pure tests); only the bundle
  * load is allowed to fail gracefully.
@@ -201,14 +219,6 @@ function bootstrap(): void {
  * the bundle's window exports, and makes `cs2/l10n` usable without the real localization provider.
  */
 function loadGameBundle(): void {
-  const installPath = process.env.CSII_INSTALLATIONPATH;
-
-  if (!installPath) {
-    throw new Error(`CSII_INSTALLATIONPATH is not set`);
-  }
-
-  const bundlePath = path.join(installPath, 'Cities2_Data', 'Content', 'Game', 'UI', 'index.js');
-
   // The bundle's two thin React wrapper modules are repointed at this repo's react/jsx-runtime, so
   // the whole tree runs on a single (dev) React instance shared with @testing-library/react.
   const require = createRequire(import.meta.url);
@@ -216,7 +226,7 @@ function loadGameBundle(): void {
   globals.__TEST_REACT__ = require('react');
   globals.__TEST_JSX__ = require('react/jsx-runtime');
 
-  let source = readFileSync(bundlePath, 'utf8');
+  let source = readGameBundle();
 
   for (const [from, to] of reactInjectionPatches) {
     if (!source.includes(from)) {

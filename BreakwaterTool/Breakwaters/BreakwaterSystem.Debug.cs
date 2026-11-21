@@ -15,7 +15,7 @@ namespace BreakwaterTool.Breakwaters {
   /// Debug entry points for the unity eval, for what <see cref="BreakwaterApi"/> does not show.
   /// </summary>
   internal sealed partial class BreakwaterSystem {
-    // The eval's pick: one snapshot at a time, as the tool keeps one per picked breakwater.
+    // The eval's snapshot: one at a time, as the tool keeps one per picked breakwater.
     private static BreakwaterSnapshot? debugSnapshot;
 
     /// <summary>
@@ -113,24 +113,24 @@ namespace BreakwaterTool.Breakwaters {
     }
 
     /// <summary>
-    /// Takes the snapshot <see cref="DebugRevert"/> restores, as the tool does on a pick.
+    /// Takes the snapshot <see cref="DebugRevert"/> restores.
     /// </summary>
-    internal static string DebugPick(Entity record) {
+    internal static string DebugSnapshot(Entity record) {
       BreakwaterSystem.debugSnapshot = BreakwaterSystem.Instance.Snapshot(record);
 
       return BreakwaterSystem.debugSnapshot is {} snapshot
-        ? $"picked {record}, {snapshot.Stones.Length} stones"
+        ? $"snapshot of {record}, {snapshot.Stones.Length} stones"
         : $"{record} is not a breakwater";
     }
 
     /// <summary>
-    /// Reverts the breakwater <see cref="DebugPick"/> picked to its snapshot.
+    /// Reverts the breakwater <see cref="DebugSnapshot"/> took to its snapshot.
     /// </summary>
     /// <returns>Why nothing is restored, or null.</returns>
     internal static string? DebugRevert() =>
       BreakwaterSystem.debugSnapshot is {} snapshot
         ? BreakwaterSystem.Instance.Revert(snapshot)
-        : "nothing is picked";
+        : "no snapshot is taken";
 
     /// <summary>
     /// A breakwater laid out again on the city's terrain, as a fit would lay it, without touching

@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Reflection;
+using Game.Modding;
 using Unity.Entities;
 using Transform = Game.Objects.Transform;
 
@@ -102,6 +103,15 @@ internal sealed class AnarchyBridgeLink {
     }
     #endif
   }
+
+  /// <summary>
+  /// The locale id of the editor option's label in Anarchy's options, or null when it cannot be
+  /// read: the tool names the option in the player's language.
+  /// </summary>
+  internal string? EditorOptionLabelId =>
+    this.Settings is ModSetting settings && this.editorOption is {} option
+      ? settings.GetOptionLabelLocaleID(option.Name)
+      : null;
 
   private object? Settings =>
     this.modInstance?.GetValue(null) is {} mod ? this.modSettings?.GetValue(mod) : null;

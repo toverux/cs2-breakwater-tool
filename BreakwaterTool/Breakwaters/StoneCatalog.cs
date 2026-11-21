@@ -14,8 +14,26 @@ namespace BreakwaterTool.Breakwaters;
 /// prefab in a choice lays the stones it lists, never itself.
 /// </summary>
 internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager entityManager) {
+  /// <summary>
+  /// The vanilla random boulder, a new breakwater's stones until the player chooses others.
+  /// </summary>
+  private const string DefaultStones = "BoulderRandom01";
+
   // Read once per prefab: a mesh does not change for the session.
   private readonly Dictionary<Entity, StoneShape> shapes = [];
+
+  /// <summary>
+  /// The stones a new breakwater lays until the player chooses others, or none when the game lacks
+  /// them.
+  /// </summary>
+  internal Entity[] DefaultChoice() =>
+    prefabSystem.TryGetPrefab(
+      new PrefabID(nameof(StaticObjectPrefab), StoneCatalog.DefaultStones),
+      out var prefab
+    ) &&
+    prefabSystem.TryGetEntity(prefab, out var entity)
+      ? [entity]
+      : [];
 
   /// <summary>
   /// The stones a choice lays, each once, in the choice's order.

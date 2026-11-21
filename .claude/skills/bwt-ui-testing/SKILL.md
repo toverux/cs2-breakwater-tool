@@ -35,19 +35,18 @@ Drive the component through the mock engine exported by [`testing/game-setup.ts`
 
 - `setBinding(group, name, value)` BEFORE `render` configures what a `bindValue(group, name, default)` returns; called after, it updates the subscribed components, so wrap it in `act`.
   An unconfigured binding keeps its `bindValue` default; a default-less binding throws, which is the intended "you forgot to configure this" signal.
-  The harness itself answers the game bindings vanilla controls read with no default: the tutorial ones every vanilla tutorial target (a `Tab`, for one) reads, a `TextInput`'s input barrier, and the glyph and keyboard-layout options a key's icons read.
+  The harness itself answers the game bindings vanilla controls read with no default: the tutorial ones every vanilla tutorial target (a `Tab`, for one) reads, a `TextInput`'s input barrier, the legacy interface option a tool options `ToolButton` reads, and the glyph and keyboard-layout options a key's icons read.
 - `setMapBinding(group, name, key, value)` configures one MapEntry binding (e.g. `cs2/ui` input hints); unconfigured entries resolve to `null`, which is enough for game widgets to render.
 - `setTranslations({ id: text })` sets what `translate` returns for an id. Without it, `translate(id, fallback)` returns the fallback, or the id when none is given, so a rendered label's text is its localization id; match on that. A string with `{PLACEHOLDER}` arguments needs its translation set, or the arguments are dropped.
 - `getTriggers()` returns the outbound command triggers (`{ event, args }`) recorded since the last reset.
-  Assert on these instead of mocking the binding layer.
+  Assert on these instead of mocking the binding layer, filtered on the mod's group: a vanilla button records its sounds as `audio.playSound` triggers too.
 - `emitEvent(name, ...args)` sends the UI an event the game would, calling every handler the bundle registered for it.
   An event binding listens on its name suffixed with `.update`: an input action is `emitEvent('input.onActionPerformed.update', { action: 'Back', value: null })`, delivered only to consumers inside an `EventInputProvider` from `cs2/input`, which reads the `input.actionNames` binding.
 - `resetBindings()` clears configured bindings, translations and recorded triggers; call it in `afterEach` alongside `@testing-library/react`'s `cleanup()`.
 - A tooltip renders here: its balloon portals into `document.body`, so a test finds its content by text. The balloon leaves through an exit transition, so assert it hidden inside `waitFor`, as [`tooltip.test.tsx`](../../../BreakwaterTool/UI/src/components/tooltip.test.tsx) does. A `wheel` holds every tooltip closed until a `mousemove`: end a test that dispatches one on a move.
 - A CSS module class is invisible too: a `*.module.scss` import resolves to the file's path, so every `styles.*` reads `undefined`. Assert on roles, text and vanilla classes, or expose a state the test checks as a `data-*` attribute.
-- State a component shares at module level (a singleton hook) outlives a test's render: reset it in `afterEach`, as [`entity-counter.test.tsx`](../../../BreakwaterTool/UI/src/entity-counter/entity-counter.test.tsx) does.
 
-See `entity-counter.test.tsx` for a binding-driven render and input action, and [`game-setup.test.tsx`](../../../BreakwaterTool/UI/src/testing/game-setup.test.tsx) for a trigger assertion.
+See [`tool-options.test.tsx`](../../../BreakwaterTool/UI/src/breakwater-tool/tool-options.test.tsx) for a binding-driven render, a binding updated under `act`, a translated placeholder and trigger assertions.
 
 ## In the running game
 

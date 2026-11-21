@@ -85,8 +85,12 @@ public sealed class Mod : IMod {
 
       // Initialize subsystems.
       updateSystem.UpdateAt<CommonUISystem>(SystemUpdatePhase.UIUpdate);
-      updateSystem.UpdateAt<EntityCounterSystem>(SystemUpdatePhase.ModificationEnd);
-      updateSystem.UpdateAt<EntityCounterUISystem>(SystemUpdatePhase.UIUpdate);
+
+      // Where the game's tools update, before the phases that create objects, so a breakwater a
+      // gesture lays shows in the same frame.
+      updateSystem.UpdateAt<BreakwaterToolSystem>(SystemUpdatePhase.ToolUpdate);
+      updateSystem.UpdateAt<BreakwaterToolTooltipSystem>(SystemUpdatePhase.UITooltip);
+      updateSystem.UpdateAt<BreakwaterToolUISystem>(SystemUpdatePhase.UIUpdate);
 
       // Where the game creates objects, before the systems that index new ones.
       updateSystem.UpdateAt<BreakwaterSystem>(SystemUpdatePhase.Modification1);

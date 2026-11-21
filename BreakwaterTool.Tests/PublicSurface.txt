@@ -57,14 +57,7 @@ class BreakwaterTool.Mod
   static BreakwaterTool.Mod Instance { get; }
   static BreakwaterTool.Settings Settings { get; }
 class BreakwaterTool.Settings
-  BreakwaterTool.Settings+EntityKind CountedEntity { get; set; }
-  Game.Input.ProxyBinding KeyBindingToggleEntityCounter { get; set; }
+  Game.Input.ProxyBinding KeyBindingToggleTool { get; set; }
   System.Boolean ResetSettings { set; }
   System.Void SetDefaults()
-  nested EntityKind
   new(Game.Modding.IMod mod)
-enum BreakwaterTool.Settings+EntityKind
-  System.Int32 value__
-  static BreakwaterTool.Settings+EntityKind Buildings
-  static BreakwaterTool.Settings+EntityKind Citizens
-  static BreakwaterTool.Settings+EntityKind Vehicles
