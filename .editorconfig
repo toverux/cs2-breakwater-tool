@@ -513,6 +513,11 @@ dotnet_naming_rule.type_members_rule.symbols = type_members
 dotnet_naming_rule.type_members_rule.style = pascal_case
 dotnet_naming_rule.type_members_rule.severity = suggestion
 
+# Every system takes a block namespace: Unity's system source generator puts its part of a system
+# declared in a file-scoped namespace in the global namespace, where it shadows the system.
+[BreakwaterTool/**/*System*.cs]
+csharp_style_namespace_declarations = block_scoped:warning
+
 # Generated build output is not our code: exempt obj/ from analysis.
 [**/obj/**]
 generated_code = true
