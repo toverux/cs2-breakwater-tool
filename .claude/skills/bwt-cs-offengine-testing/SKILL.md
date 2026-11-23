@@ -1,6 +1,6 @@
 ---
 name: bwt-cs-offengine-testing
-description: Write and run the mod's C# tests off-engine, on .NET 10. Use when writing or running a C# test, when a test throws on a Unity or game type (SecurityException, TypeLoadException), when a result differs between the float32 and float64 passes, or when deciding where logic goes so it stays testable.
+description: Write and run the mod's C# tests off-engine, on .NET 10. Use when writing or running a C# test, when a test throws on a Unity or game type (SecurityException, TypeLoadException), when a result differs between the float32 and float64 passes, when timing managed code or comparing two versions' speed, or when deciding where logic goes so it stays testable.
 ---
 
 # C# off-engine testing
@@ -81,3 +81,4 @@ CoreCLR computes in single precision throughout, so the float32 pass is Burst's 
 
 CoreCLR is not the game's Mono: string formatting, culture-aware comparison, hash codes, code pages and a few type layouts differ.
 When a result goes through any of those (text a player sees, a sort, a persisted value, a dictionary's order), read [runtime-differences.md](runtime-differences.md) and check that result in game.
+To time managed code, or compare two versions' speed, follow [mono-timing.md](mono-timing.md): a timing taken in the tests says nothing of the game.
