@@ -10,6 +10,8 @@ namespace BreakwaterTool.Scenarios.Ground;
 /// <summary>
 /// A layout seen from above, as an SVG picture: the outline, its toe, and each stone's footprint,
 /// the rectangle it shows over the ground. One layer per layout, so that two can be compared.
+/// A stone is rounder than its rectangle, so a picture is judged for its rows, bond, and turn; bare
+/// ground is judged by the tests on gaps and in the game's album, where more of it shows.
 /// </summary>
 internal static class LayoutPicture {
   /// <summary>

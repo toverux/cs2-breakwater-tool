@@ -18,7 +18,6 @@
   "BreakwaterTool.Tool.REFUSED[TooClose]": "Too close to another point",
   "BreakwaterTool.Tool.REFUSED[KeepsThree]": "A breakwater keeps three points at least",
   "BreakwaterTool.Tool.NOTHING_LAID[OverGuard]": "More stones than the limit of {LIMIT}: draw a smaller outline",
-  "BreakwaterTool.Tool.NOTHING_LAID[NoRow]": "No row of stones fits in this outline",
   "BreakwaterTool.Tool.NOTHING_LAID[NoArea]": "This outline has no area",
   "BreakwaterTool.Tool.NOTHING_LAID[NoStone]": "None of the chosen stones can be laid",
   "BreakwaterTool.Tool.NOTHING_LAID": "Nothing laid: {REASON}",

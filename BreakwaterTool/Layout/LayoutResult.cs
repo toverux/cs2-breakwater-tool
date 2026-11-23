@@ -17,7 +17,8 @@ internal enum LayoutVerdict {
   Laid,
 
   /// <summary>
-  /// The polygon has fewer than three points, a point that is not a finite number, or no area.
+  /// The polygon has fewer than three points, a point that is not a number or lies far off the map,
+  /// or no area.
   /// </summary>
   NoArea,
 
@@ -25,11 +26,6 @@ internal enum LayoutVerdict {
   /// No stone shape was given, or none shows a footprint once embedded.
   /// </summary>
   NoStone,
-
-  /// <summary>
-  /// No row of stones fits in the polygon.
-  /// </summary>
-  NoRow,
 
   /// <summary>
   /// The estimate of the stones, or the stones laid, exceed <see cref="BreakwaterLayout.Guard"/>:
@@ -82,9 +78,8 @@ internal sealed class LayoutResult {
   internal string? WhyNothing =>
     this.Verdict switch {
       LayoutVerdict.Laid => null,
-      LayoutVerdict.NoArea => "the polygon has no area",
+      LayoutVerdict.NoArea => "the polygon has no area or lies off the map",
       LayoutVerdict.NoStone => "no stone shows a footprint to lay",
-      LayoutVerdict.NoRow => "no row of stones fits in the polygon",
       LayoutVerdict.OverGuard => this.Estimate > BreakwaterLayout.Guard
         ? $"about {this.Estimate} stones, over the limit of {BreakwaterLayout.Guard}"
         // Laying stopped at the guard, short of what the polygon holds.

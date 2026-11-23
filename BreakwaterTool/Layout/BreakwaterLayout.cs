@@ -10,11 +10,12 @@ namespace BreakwaterTool.Layout;
 /// Lays the stones of a breakwater over a polygon, on the terrain: the terrain is the mound, the
 /// stones dress it, and the polygon only says where.
 /// The toe is the run of the polygon's edges in the bottom 40 % of its points' heights, or every
-/// edge when they are within 2 m of level. The first row follows the toe, each next row one row
-/// spacing further up the slope, until it leaves the polygon (a revetment's crest) or meets the
-/// rows climbing the other side (a jetty's spine). Each row's stones sit at the midpoints of the
-/// row below, a brick bond; a row from a run of toe edges also grows round the run's ends, as on a
-/// breakwater's head.
+/// edge when they are within 2 m of level.
+/// Each row is a contour of the distance to the whole toe, clipped to the polygon: the first is the
+/// toe, the next one row spacing further up the slope, until the polygon holds none (a revetment's
+/// crest) or the rows of two sides meet (a jetty's spine). Its stones are placed fresh along it, a
+/// stone spacing apart and each between two stones of the row below, a brick bond; a toe line's end
+/// turns its rows round it, as on a breakwater's head.
 /// </summary>
 internal static class BreakwaterLayout {
   /// <summary>
@@ -23,6 +24,13 @@ internal static class BreakwaterLayout {
   /// crashed the game in the prototype.
   /// </summary>
   internal const int Guard = 20_000;
+
+  /// <summary>
+  /// The farthest from the middle of the map, each way, that a polygon's points may be, in metres:
+  /// past any map's edge. Where a float's step swallows a cell of the field or a stone spacing, the
+  /// layout would throw or never end.
+  /// </summary>
+  private const float Farthest = 32_768f;
 
   /// <summary>
   /// A boundary whose points are within this height of each other is level: all of it is toe.
@@ -45,7 +53,7 @@ internal static class BreakwaterLayout {
     var area = BreakwaterLayout.Area(polygon);
 
     if (polygon.Count < 3 ||
-      polygon.Any(static point => !math.all(math.isfinite(point))) ||
+      polygon.Any(static point => !math.all(math.abs(point) <= BreakwaterLayout.Farthest)) ||
       area <= 0f) {
       return new LayoutResult {
         Verdict = LayoutVerdict.NoArea
@@ -110,8 +118,7 @@ internal static class BreakwaterLayout {
     var field = new ToeField(
       polygon,
       toe,
-      cell: math.min(0.5f, math.min(stoneSpacing, rowSpacing) / 4f),
-      margin: 2f * math.max(stoneSpacing, rowSpacing),
+      cell: BreakwaterLayout.Cell(math.min(stoneSpacing, rowSpacing)),
       host
     );
 
@@ -120,15 +127,14 @@ internal static class BreakwaterLayout {
       Centres = centres,
       MeanHeight = kept.Average(i => shapes[i].Height),
       StoneSpacing = stoneSpacing,
-      RowSpacing = rowSpacing
+      RowSpacing = rowSpacing,
+      Sampler = new RowSampler(stoneSpacing, rowSpacing)
     };
 
-    var lines = BreakwaterLayout.ToeLines(polygon, toe);
+    var toeLines = BreakwaterLayout.ToeLines(polygon, toe);
 
     for (var layer = 0; layer < parameters.Layers; layer++) {
-      foreach (var line in lines) {
-        builder.LayRows(line, layer);
-      }
+      builder.LayRows(toeLines, layer);
     }
 
     // Rows close up on steep ground, so a slope can hold more stones than its area's estimate.
@@ -146,7 +152,7 @@ internal static class BreakwaterLayout {
     }
 
     return new LayoutResult {
-      Verdict = builder.Stones.Count > 0 ? LayoutVerdict.Laid : LayoutVerdict.NoRow,
+      Verdict = LayoutVerdict.Laid,
       Stones = builder.Stones,
       Estimate = (int) estimate,
       ToeEdges = toe,
@@ -203,75 +209,50 @@ internal static class BreakwaterLayout {
   }
 
   /// <summary>
-  /// The toe as polylines: each run of consecutive toe edges, open, or the whole polygon closed on
-  /// its first point when every edge is toe.
+  /// The field's step for the smaller of the spacings, in metres: a quarter of it draws a seam
+  /// well.
   /// </summary>
-  private static List<List<float2>> ToeLines(IReadOnlyList<float2> polygon, bool[] toe) {
-    var lines = new List<List<float2>>();
+  // [PERF] Half a metre or half of it for small stones, which take the most cells, in place of a
+  // quarter for all.
+  private static float Cell(float spacing) => math.min(math.max(0.5f, spacing / 4f), spacing / 2f);
 
+  /// <summary>
+  /// The toe as lines: each run of consecutive toe edges, open, or the whole polygon, closed, when
+  /// every edge is toe.
+  /// </summary>
+  private static List<RowLine> ToeLines(IReadOnlyList<float2> polygon, bool[] toe) {
     if (toe.All(static edge => edge)) {
-      lines.Add([.. polygon, polygon[0]]);
-
-      return lines;
+      return [new RowLine([.. polygon], true)];
     }
+
+    var runs = new List<List<float2>>();
 
     // Start after an edge off the toe, so that no run wraps round the start.
     var start = Array.IndexOf(toe, false) + 1;
-    List<float2>? line = null;
+    List<float2>? run = null;
 
     for (var k = 0; k < polygon.Count; k++) {
       var i = (start + k) % polygon.Count;
 
       if (!toe[i]) {
-        line = null;
+        run = null;
 
         continue;
       }
 
-      if (line is null) {
-        line = [polygon[i]];
-        lines.Add(line);
+      if (run is null) {
+        run = [polygon[i]];
+        runs.Add(run);
       }
 
-      line.Add(polygon[(i + 1) % polygon.Count]);
+      run.Add(polygon[(i + 1) % polygon.Count]);
     }
 
-    return lines;
+    return runs.ConvertAll(static points => new RowLine([.. points], false));
   }
 
   /// <summary>
-  /// Points along a polyline, as many as its length holds steps, rounded, spread evenly so that a
-  /// closed loop has no short gap where it ends; the first at phase times the spread.
-  /// A line shorter than a step gets one point.
-  /// </summary>
-  private static IEnumerable<float2> Resample(List<float2> line, float step, float phase) {
-    var length = 0f;
-
-    for (var k = 1; k < line.Count; k++) {
-      length += math.distance(line[k - 1], line[k]);
-    }
-
-    var count = Math.Max(1, (int) math.round(length / step));
-    var spread = length / count;
-    var next = phase * spread;
-    var walked = 0f;
-
-    for (var k = 1; k < line.Count && count > 0; k++) {
-      var segment = math.distance(line[k - 1], line[k]);
-
-      while (next <= walked + segment && count > 0) {
-        yield return math.lerp(line[k - 1], line[k], segment > 0f ? (next - walked) / segment : 0f);
-
-        next += spread;
-        count--;
-      }
-
-      walked += segment;
-    }
-  }
-
-  /// <summary>
-  /// The rows of one layout, laid one toe line at a time, and the stones they hold so far.
+  /// The rows of one layout and the stones they hold so far.
   /// </summary>
   private sealed class Builder(
     IReadOnlyList<StoneShape> shapes,
@@ -283,6 +264,13 @@ internal static class BreakwaterLayout {
     /// The distance on the ground, round a stone, over which its tilt is read.
     /// </summary>
     private const float TiltReach = 1.5f;
+
+    /// <summary>
+    /// How near two stones of one layer may be placed, as a share of the smaller of the stone and
+    /// row spacings: where rows from two sides meet, it keeps the stones of one from lying on the
+    /// other's.
+    /// </summary>
+    private const float LeastGap = 2f / 3f;
 
     // Every random draw of the layout, in a fixed order, hence a single mutable stream.
     private Random random = new(math.max(1u, (parameters.Seed * 7919u) + 1u));
@@ -297,55 +285,136 @@ internal static class BreakwaterLayout {
 
     internal required float RowSpacing { get; init; }
 
+    internal required RowSampler Sampler { get; init; }
+
     internal List<LaidStone> Stones { get; } = [];
 
     internal int Rows { get; private set; }
 
     /// <summary>
-    /// Lays the rows that climb from a toe line, the first on it, until none is left.
+    /// How far the barest spot of an even bond is from its stones: the radius of the circle through
+    /// three of them.
     /// </summary>
-    internal void LayRows(List<float2> line, int layer) {
-      // The polygon itself closes on its first point; a run of toe edges is open.
-      var closed = line.Count > 2 && line[0].Equals(line[^1]);
+    private float Room =>
+      ((0.25f * this.StoneSpacing * this.StoneSpacing) + (this.RowSpacing * this.RowSpacing)) /
+      math.max(2f * this.RowSpacing, this.StoneSpacing);
 
+    /// <summary>
+    /// Lays a layer's rows, the first on the toe, until none is left.
+    /// </summary>
+    internal void LayRows(IReadOnlyList<RowLine> toe, int layer) {
       // A second layer sits half a row and half a stone off the first.
       var shift = layer * 0.5f;
-
-      var row = BreakwaterLayout.Resample(line, this.StoneSpacing, shift)
-        .Select(point => field.Move(point, shift * this.RowSpacing, this.RowSpacing))
-        .ToList();
+      var level = shift * this.RowSpacing;
+      var gap = this.Gap(this.RowSpacing);
+      var taken = new PlaceGrid(gap, this.Room);
+      var below = new List<RowPlace>();
 
       // Past the guard the layout is refused anyway: an outline that crosses itself misleads the
       // estimate, which nets its lobes' areas.
-      for (var t = shift * this.RowSpacing;
-        row.Count > 0 && this.Stones.Count <= BreakwaterLayout.Guard;) {
-        var slope = this.Emit(row, layer);
+      while (level <= field.Highest && this.Stones.Count <= BreakwaterLayout.Guard) {
+        // The toe's own row is laid however short its lines are.
+        var lines = level > 0f
+          ? field.Contours(level).Where(line => !this.IsSliver(line))
+          : toe;
+
+        var row = new List<RowPlace>();
+
+        foreach (var place in this.Sampler.Place(lines, below, shift)) {
+          if (taken.TryTake(place, gap)) {
+            row.Add(place);
+          }
+        }
+
+        this.Rows += row.Count > 0 ? 1 : 0;
 
         // Rows one spacing apart on the slope: closer seen from above where it is steeper.
-        t += this.RowSpacing * math.max(0.5f, slope);
-        row = this.NextRow(row, closed, t);
+        var rise = this.RowSpacing * math.max(0.5f, this.Emit(row, layer));
 
-        if (!closed) {
-          this.Extend(row, t);
-        }
+        this.Emit(this.Closing(row, level, rise, taken), layer);
+
+        level += rise;
+        below = row;
       }
+
+      this.Emit(taken.TakeHoles(field), layer);
     }
 
     /// <summary>
-    /// Lays a stone on each place of a row, and returns the mean cosine of the row's slope.
+    /// The least distance between two places, seen from above, where rows are a distance apart.
     /// </summary>
-    private float Emit(List<float2?> row, int layer) {
-      this.Rows++;
+    private float Gap(float rows) => Builder.LeastGap * math.min(this.StoneSpacing, rows);
 
-      var rowShape = this.Kept[this.random.NextInt(this.Kept.Length)];
-      var cosines = 0f;
-      var laid = 0;
+    /// <summary>
+    /// Whether a line is a piece of row too short for two stones that the outline ends just above:
+    /// the stone it would hold stands over the crest.
+    /// </summary>
+    private bool IsSliver(RowLine line) =>
+      !line.IsClosed &&
+      line.Length < this.StoneSpacing &&
+      field.EndsUphill((line.Points[0] + line.Points[^1]) * 0.5f, 0.25f * this.RowSpacing);
 
-      foreach (var anchor in row) {
-        if (anchor is not {} place) {
+    /// <summary>
+    /// The places that close a row with the one on the other side of the spine, where the next rows
+    /// would come too near each other: on the spine when it is within a rise, otherwise on either
+    /// side of it, as far from each other as from their rows.
+    /// </summary>
+    private List<RowPlace> Closing(
+      List<RowPlace> row,
+      float level,
+      float rise,
+      PlaceGrid taken
+    ) {
+      var places = new List<RowPlace>();
+
+      // Past the gap, so that the next row finds room on the spine where this one leaves it open.
+      var reach = 1.7f * rise;
+
+      // Off the row, whose own line may be the toe, where the field folds too, and low enough for
+      // its line to stay clear of the spine.
+      var start = math.max(0.25f * rise, field.LowestWhole - level);
+
+      // [PERF] No line is traced where no sides meet, in place of a climb from each place.
+      if (!field.HasFold(level + start, level + reach)) {
+        return places;
+      }
+
+      foreach (var place in this.Sampler.Place(field.Contours(level + start), row, 0f)) {
+        if (field.Climb(place.Position, reach - start) is not {} spine) {
           continue;
         }
 
+        var climb = math.distance(place.Position, spine);
+        var height = start + climb;
+
+        var closing = place with {
+          Position = height <= rise
+            ? spine
+            : math.lerp(place.Position, spine, ((2f / 3f * height) - start) / climb)
+        };
+
+        // Where the outline bends in, it can pass between the row and the spine.
+        if (field.Contains(closing.Position) && taken.TryTake(closing, this.Gap(rise))) {
+          places.Add(closing);
+        }
+      }
+
+      return places;
+    }
+
+    /// <summary>
+    /// Lays a stone on each place of a row, and returns the mean cosine of the row's slope, 1 for
+    /// an empty row.
+    /// </summary>
+    private float Emit(List<RowPlace> row, int layer) {
+      if (row.Count == 0) {
+        return 1f;
+      }
+
+      var rowShape = this.Kept[this.random.NextInt(this.Kept.Length)];
+      var cosines = 0f;
+
+      foreach (var (place, direction) in row) {
         var shape = this.random.NextFloat() < parameters.Mixing
           ? this.Kept[this.random.NextInt(this.Kept.Length)]
           : rowShape;
@@ -359,10 +428,8 @@ internal static class BreakwaterLayout {
         var normal = this.Normal(xz);
 
         cosines += normal.y;
-        laid++;
 
-        var gradient = field.Gradient(place);
-        var along = new float3(-gradient.y, 0f, gradient.x);
+        var along = new float3(direction.x, 0f, direction.y);
         var up = math.normalize(math.lerp(new float3(0f, 1f, 0f), normal, parameters.FollowSlope));
         var x = math.normalizesafe(along - (math.dot(along, up) * up), new float3(1f, 0f, 0f));
         var frame = quaternion.LookRotationSafe(math.cross(x, up), up);
@@ -409,7 +476,7 @@ internal static class BreakwaterLayout {
         this.Stones.Add(new LaidStone(shape, position, rotation));
       }
 
-      return laid > 0 ? cosines / laid : 1f;
+      return cosines / row.Count;
     }
 
     /// <summary>
@@ -426,99 +493,6 @@ internal static class BreakwaterLayout {
           (host.HeightAt(xz - dz) - host.HeightAt(xz + dz)) / (2f * Builder.TiltReach)
         )
       );
-    }
-
-    /// <summary>
-    /// The row at distance t from the toe: each place of the previous row moved onto the new
-    /// contour, then stones at the midpoints between neighbours, one per stone spacing of the gap.
-    /// A place that cannot reach the contour is a null, a break in the row.
-    /// </summary>
-    private List<float2?> NextRow(List<float2?> previous, bool closed, float t) {
-      var moved = previous
-        .Select(point => point is {} place ? field.Move(place, t, this.RowSpacing) : null)
-        .ToList();
-
-      var row = new List<float2?>();
-      var pairs = closed ? moved.Count : moved.Count - 1;
-
-      for (var i = 0; i < pairs; i++) {
-        if (moved[i] is not {} a || moved[(i + 1) % moved.Count] is not {} b) {
-          row.Add(null);
-
-          continue;
-        }
-
-        var gap = math.distance(a, b);
-
-        // A wider gap is a place that jumped, across a narrow inlet: a break. A convex bend of the
-        // toe widens a gap by about a row spacing times its angle per row, well under it.
-        if (gap > 4f * this.StoneSpacing) {
-          row.Add(null);
-
-          continue;
-        }
-
-        var count = (int) math.round(gap / this.StoneSpacing);
-
-        for (var k = 0; k < count; k++) {
-          row.Add(math.lerp(a, b, (k + 0.5f) / count));
-        }
-      }
-
-      return row.Any(static point => point is not null) ? row : [];
-    }
-
-    /// <summary>
-    /// Prolongs an open row from each end along its contour, a stone at a time, while it stays
-    /// inside the polygon: round the end of a toe run the contours are arcs, and the rows wrap
-    /// round it as on a breakwater's head.
-    /// </summary>
-    private void Extend(List<float2?> row, float t) {
-      if (row.Count < 2) {
-        return;
-      }
-
-      this.ExtendTail(row, t);
-      row.Reverse();
-      this.ExtendTail(row, t);
-      row.Reverse();
-    }
-
-    private void ExtendTail(List<float2?> row, float t) {
-      if (row[^1] is not {} last || row[^2] is not {} beforeLast) {
-        return;
-      }
-
-      var point = last;
-      var direction = math.normalizesafe(last - beforeLast);
-      var existing = row.Count;
-
-      // Bounded, as a contour that loops would otherwise never end.
-      for (var k = 0; k < 1000; k++) {
-        if (field.Move(point + (direction * this.StoneSpacing), t, this.RowSpacing, 0.15f) is not {
-          } next ||
-          field.Sample(next) < 0f) {
-          return;
-        }
-
-        var step = next - point;
-
-        // Stop on a fold back, or on reaching stones already laid in this row.
-        if (math.length(step) < 0.5f * this.StoneSpacing ||
-          math.dot(math.normalize(step), direction) < 0.5f) {
-          return;
-        }
-
-        for (var i = 0; i < existing - 1; i++) {
-          if (row[i] is {} other && math.distance(other, next) < this.StoneSpacing) {
-            return;
-          }
-        }
-
-        direction = math.normalize(step);
-        point = next;
-        row.Add(point);
-      }
     }
   }
 }

@@ -9,8 +9,8 @@ using Xunit;
 namespace BreakwaterTool.Tests.Layout;
 
 /// <summary>
-/// Outlines another mod may pass through the public entry points: each reaches a verdict, and none
-/// throws or hangs.
+/// Outlines another mod may pass through the public entry points: each reaches a verdict, none
+/// throws or hangs, and what is laid keeps the invariants.
 /// </summary>
 public sealed class LayoutInputTests {
   /// <summary>
@@ -57,8 +57,16 @@ public sealed class LayoutInputTests {
         new float2(20040f, 20010f),
         new float2(20000f, 20010f)
       ], LayoutVerdict.Laid),
-      ["an outline of 10 000 km"] = (
-        [new float2(0f, 0f), new float2(1e7f, 0f), new float2(1e7f, 1e7f), new float2(0f, 1e7f)],
+      // Where a float holds no field round it.
+      ["an outline 40 000 km away"] = (
+      [
+        new float2(0f, 4e7f),
+        new float2(64f, 4e7f),
+        new float2(64f, 4e7f + 64f),
+        new float2(0f, 4e7f + 64f)
+      ], LayoutVerdict.NoArea),
+      ["an outline of 30 km"] = (
+        [new float2(0f, 0f), new float2(3e4f, 0f), new float2(3e4f, 3e4f), new float2(0f, 3e4f)],
         LayoutVerdict.OverGuard),
       // Its lobes cancel in the signed area, so the estimate before laying is far too low.
       ["a wide bow-tie of little area"] = (
@@ -81,6 +89,15 @@ public sealed class LayoutInputTests {
     );
 
     Assert.Equal(verdict, result.Verdict);
+
+    var breach = LayoutInvariants.Breach(
+      outline,
+      result,
+      FixtureStones.Crates,
+      BreakwaterParameters.Default
+    );
+
+    Assert.Null(breach);
   }
 
   [Fact]
@@ -136,6 +153,36 @@ public sealed class LayoutInputTests {
   }
 
   [Fact]
+  public void Lay_OutlineSmallerThanAStone_LaysOne() {
+    // Steep enough that its toe is one edge: on level ground, every edge is.
+    var result = BreakwaterLayout.Lay(
+      [new float2(0f, 0f), new float2(3f, 0f), new float2(3f, 2.2f), new float2(0f, 2.2f)],
+      FixtureStones.Boulders,
+      BreakwaterParameters.Default,
+      new FixtureHost(static xz => xz.y)
+    );
+
+    Assert.Single(result.Stones);
+  }
+
+  [Fact]
+  public void Lay_OutlineThinnerThanACell_LaysEveryRow() {
+    const float length = 19.5f;
+
+    // Leaning, so that it runs between the grid's nodes and across them.
+    var result = BreakwaterLayout.Lay(
+      [new float2(0f, 0f), new float2(0.3f, 0f), new float2(2.3f, length), new float2(2f, length)],
+      FixtureStones.Crates,
+      BreakwaterParameters.Default,
+      LayoutInputTests.Slope
+    );
+
+    // A stone on the toe, then one every row spacing on the slope, sqrt(1.25) times less seen from
+    // above.
+    Assert.Equal(1 + (int) (length * math.sqrt(1.25f) / result.RowSpacing), result.Stones.Count);
+  }
+
+  [Fact]
   public void Lay_LongDiagonal_KeepsItsFieldUnderTheCap() {
     var result = GroundFixture.Layout(ProvingSites.Named("long-diagonal"));
 
@@ -169,6 +216,15 @@ public sealed class LayoutInputTests {
 
       Assert.InRange(result.Stones.Count, 0, BreakwaterLayout.Guard);
       Assert.True(result.Verdict is LayoutVerdict.Laid || result.Stones.Count == 0, $"outline {n}");
+
+      var breach = LayoutInvariants.Breach(
+        outline,
+        result,
+        FixtureStones.Boulders,
+        BreakwaterParameters.Default
+      );
+
+      Assert.True(breach is null, $"outline {n}: {breach}");
     }
 
     // Most of them lay stones: the fuzz is not only exercising the early exits.

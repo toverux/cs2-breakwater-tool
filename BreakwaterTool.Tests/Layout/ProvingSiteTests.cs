@@ -1,9 +1,7 @@
-using System.Collections.Generic;
 using System.Linq;
 using BreakwaterTool.Layout;
 using BreakwaterTool.Scenarios.Ground;
 using BreakwaterTool.Tests.Scenarios.Ground;
-using Unity.Mathematics;
 using Xunit;
 
 namespace BreakwaterTool.Tests.Layout;
@@ -39,23 +37,59 @@ public sealed class ProvingSiteTests {
 
   [Theory]
   [MemberData(nameof(ProvingSiteTests.Sites))]
-  public void Lay_Site_KeepsEveryStoneInside(string name) {
+  public void Lay_Site_KeepsTheInvariants(string name) {
+    var site = ProvingSites.Named(name);
+
+    Assert.Null(
+      LayoutInvariants.Breach(
+        site.Outline,
+        GroundFixture.Layout(site),
+        FixtureStones.For(site.Stones),
+        site.Parameters
+      )
+    );
+  }
+
+  [Theory]
+  [MemberData(nameof(ProvingSiteTests.Sites))]
+  public void Lay_Site_LeavesNoHole(string name) {
     var site = ProvingSites.Named(name);
     var result = GroundFixture.Layout(site);
-    var shapes = FixtureStones.For(site.Stones);
 
-    // A stone sits on a contour of the distance field, inside, up to the field's interpolation
-    // over one cell, and moved by its irregularity, up to that share of a spacing each way.
-    var cell = math.min(0.5f, math.min(result.StoneSpacing, result.RowSpacing) / 4f);
-    var tolerance = cell + (site.Parameters.Irregularity * result.StoneSpacing * math.SQRT2);
+    if (result.Verdict is not LayoutVerdict.Laid) {
+      return;
+    }
 
-    var outside = result.Stones
-      .Select(stone => LayoutPicture.Centre(stone, shapes[stone.Shape], site.Parameters.Embed))
-      .Select(centre => ProvingSiteTests.Outside(centre, site.Outline))
-      .DefaultIfEmpty(0f)
-      .Max();
+    var (rooms, _) = LayoutInvariants.Barest(
+      site.Outline,
+      result,
+      FixtureStones.For(site.Stones),
+      site.Parameters
+    );
 
-    Assert.InRange(outside, 0f, tolerance);
+    // Where rows of two sides meet at an angle, the places they lose would leave more.
+    Assert.InRange(rooms, 0f, 1.3f);
+  }
+
+  [Theory]
+  [MemberData(nameof(ProvingSiteTests.Sites))]
+  public void Lay_Site_KeepsTheBrickBond(string name) {
+    var site = ProvingSites.Named(name);
+    var result = GroundFixture.Layout(site);
+
+    if (result.Verdict is not LayoutVerdict.Laid ||
+      result.Stones.Count > ProvingSiteTests.PictureLimit) {
+      return;
+    }
+
+    var share = BrickBond.BrokenShare(
+      site.Outline,
+      result,
+      FixtureStones.For(site.Stones),
+      site.Parameters
+    );
+
+    Assert.InRange(share, 0f, BrickBond.MostBroken);
   }
 
   [Theory]
@@ -87,29 +121,5 @@ public sealed class ProvingSiteTests {
       name,
       LayoutPicture.Render(site.Outline, result.ToeEdges, ("laid", footprints))
     );
-  }
-
-  /// <summary>
-  /// How far a point lies outside a polygon, or zero inside it.
-  /// </summary>
-  private static float Outside(float2 point, IReadOnlyList<float2> polygon) {
-    var inside = false;
-    var nearest = float.MaxValue;
-
-    for (var i = 0; i < polygon.Count; i++) {
-      var a = polygon[i];
-      var b = polygon[(i + 1) % polygon.Count];
-      var ab = b - a;
-      var t = math.saturate(math.dot(point - a, ab) / math.lengthsq(ab));
-
-      nearest = math.min(nearest, math.distance(point, a + (t * ab)));
-
-      if ((a.y > point.y) != (b.y > point.y) &&
-        point.x < a.x + ((point.y - a.y) / (b.y - a.y) * ab.x)) {
-        inside = !inside;
-      }
-    }
-
-    return inside ? 0f : nearest;
   }
 }

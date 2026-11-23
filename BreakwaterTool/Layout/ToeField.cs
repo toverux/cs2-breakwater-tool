@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Unity.Burst;
@@ -9,15 +8,31 @@ using Unity.Mathematics;
 namespace BreakwaterTool.Layout;
 
 /// <summary>
-/// The distance to the polygon's toe on a grid, positive inside the polygon, read anywhere in game
-/// metres by bilinear interpolation. The rows climb it: row t is the contour at distance t.
+/// The distance to the polygon's toe on a grid, inside the polygon and out. The rows climb it: row
+/// t is the contour at distance t, clipped to the polygon.
 /// </summary>
-internal sealed class ToeField {
+internal sealed partial class ToeField {
   /// <summary>
-  /// The most cells the field holds, 16 MB of them: an outline drawn long on the diagonal spans a
-  /// vast bounding box, which a field at the requested step would fill with hundreds of megabytes.
+  /// The most cells the field holds: an outline drawn long on the diagonal spans a vast bounding
+  /// box, which a field at the requested step would fill with hundreds of megabytes.
   /// </summary>
   internal const int Cap = 4_000_000;
+
+  /// <summary>
+  /// How far the grid reaches past the outline's bounds, in cells: enough that a cell inside the
+  /// outline has others on every side, which the contours read unchecked.
+  /// A read of the field farther out takes the grid's edge.
+  /// </summary>
+  private const int Margin = 3;
+
+  /// <summary>
+  /// The gradient's length under which the field folds: two sides of the breakwater face each other
+  /// there, along its spine.
+  /// </summary>
+  private const float FoldGradient = 0.6f;
+
+  // [PERF] An array, in place of the list given, whose items Mono reads through an interface.
+  private readonly float2[] outline;
 
   private readonly float[] distances;
 
@@ -35,13 +50,11 @@ internal sealed class ToeField {
   /// The grid's step, in metres, made coarser where the outline's bounds would hold more than
   /// <see cref="Cap"/> cells.
   /// </param>
-  /// <param name="margin">How far the grid reaches past the outline's bounds, in metres.</param>
   /// <param name="host">Fills the grid.</param>
   internal ToeField(
     IReadOnlyList<float2> polygon,
     IReadOnlyList<bool> toe,
     float cell,
-    float margin,
     ILayoutHost host
   ) {
     var min = polygon[0];
@@ -52,7 +65,7 @@ internal sealed class ToeField {
       max = math.max(max, point);
     }
 
-    var span = max - min + (2f * margin);
+    var span = max - min;
 
     cell = math.max(cell, math.sqrt(span.x * span.y / ToeField.Cap));
 
@@ -61,12 +74,13 @@ internal sealed class ToeField {
       cell *= 1.05f;
     }
 
-    this.origin = min - margin;
+    this.outline = polygon.ToArray();
+    this.origin = min - (ToeField.Margin * cell);
     this.cell = cell;
     this.countX = ToeField.Count(span.x, cell);
     this.countZ = ToeField.Count(span.y, cell);
 
-    using var points = new NativeArray<float2>(polygon.ToArray(), Allocator.TempJob);
+    using var points = new NativeArray<float2>(this.outline, Allocator.TempJob);
     using var toeEdges = new NativeArray<bool>(toe.ToArray(), Allocator.TempJob);
     using var grid = new NativeArray<float>(this.countX * this.countZ, Allocator.TempJob);
 
@@ -82,71 +96,119 @@ internal sealed class ToeField {
     );
 
     this.distances = grid.ToArray();
+    this.SortCells();
   }
 
   internal int CellCount => this.distances.Length;
 
-  private static int Count(float span, float cell) => (int) math.ceil(span / cell) + 1;
-
-  internal float Sample(float2 point) {
-    var grid = math.clamp(
-      (point - this.origin) / this.cell,
-      0f,
-      new float2(this.countX - 1.001f, this.countZ - 1.001f)
-    );
-
-    var i = (int) grid.x;
-    var j = (int) grid.y;
-    var fraction = grid - new float2(i, j);
-
-    var below = math.lerp(
-      this.distances[(j * this.countX) + i],
-      this.distances[(j * this.countX) + i + 1],
-      fraction.x
-    );
-
-    var above = math.lerp(
-      this.distances[((j + 1) * this.countX) + i],
-      this.distances[((j + 1) * this.countX) + i + 1],
-      fraction.x
-    );
-
-    return math.lerp(below, above, fraction.y);
-  }
+  /// <summary>
+  /// The lowest level whose line is whole. Nodes on both sides of the toe can be as far from it as
+  /// half a cell's diagonal, and a lower level's line breaks between them.
+  /// </summary>
+  internal float LowestWhole => 0.75f * this.cell;
 
   /// <summary>
-  /// The field's unit gradient at a point, pointing away from the toe, up the slope.
+  /// The point of the spine uphill of a point, or null when none is within a reach, or the outline
+  /// ends before it.
   /// </summary>
-  internal float2 Gradient(float2 point) {
-    var step = this.cell;
+  internal float2? Climb(float2 from, float reach) {
+    // The way up a side is straight, as far as the fold.
+    var up = this.Up(from);
 
-    return math.normalizesafe(
-      new float2(
-        this.Sample(point + new float2(step, 0f)) - this.Sample(point - new float2(step, 0f)),
-        this.Sample(point + new float2(0f, step)) - this.Sample(point - new float2(0f, step))
-      )
-    );
-  }
-
-  /// <summary>
-  /// A point moved along the gradient onto the contour at distance t, or null when it cannot get
-  /// near it: out of the polygon, or past a jetty's spine, where the field folds.
-  /// </summary>
-  /// <param name="tolerance">
-  /// How far from the contour a point may settle, in row spacings: 0.6 lets the last row of a jetty
-  /// settle on its spine, closing the seam between its two sides.
-  /// </param>
-  internal float2? Move(float2 point, float t, float rowSpacing, float tolerance = 0.6f) {
-    for (var k = 0; k < 3; k++) {
-      point += this.Gradient(point) * (t - this.Sample(point));
+    // [PERF] A side that rises all the way to the reach is refused at once, in place of climbed:
+    // most places are nowhere near the spine.
+    if (this.Sample(from + (up * reach)) > this.Sample(from) + reach - (0.05f * this.cell)) {
+      return null;
     }
 
-    return Math.Abs(this.Sample(point) - t) < tolerance * rowSpacing ? point : null;
+    for (var climb = 0f; climb < reach; climb += 0.5f * this.cell) {
+      var point = from + (up * climb);
+
+      if (math.length(this.Slope(point, 2f * this.cell)) < ToeField.FoldGradient &&
+        this.Top(point, up) is {} top) {
+        return math.distance(from, top) <= reach && this.Contains(top) ? top : null;
+      }
+    }
+
+    return null;
+  }
+
+  internal bool Contains(float2 point) => GroundCheck.Contains(this.outline, point);
+
+  /// <summary>
+  /// Whether the outline ends less than a distance uphill of a point.
+  /// </summary>
+  internal bool EndsUphill(float2 point, float distance) =>
+    !this.Contains(point + (this.Up(point) * distance));
+
+  private static int Count(float span, float cell) =>
+    (int) math.ceil(span / cell) + 1 + (2 * ToeField.Margin);
+
+  /// <summary>
+  /// The highest point ahead of a point, or null when the field still rises two cells away.
+  /// </summary>
+  private float2? Top(float2 point, float2 up) {
+    var step = up * (0.125f * this.cell);
+    var steps = 16;
+
+    while (this.Sample(point + step) > this.Sample(point)) {
+      if (steps-- == 0) {
+        return null;
+      }
+
+      point += step;
+    }
+
+    // The grid has the top on one of its nodes: it is where the slopes on its two sides meet.
+    var side = up * (1.5f * this.cell);
+    var past = 0.5f * (this.Sample(point + side) - this.Sample(point - side));
+
+    return point + (up * math.clamp(past, -0.5f * this.cell, 0.5f * this.cell));
+  }
+
+  /// <summary>
+  /// The distance to the toe at a point, by bilinear interpolation.
+  /// </summary>
+  private float Sample(float2 point) {
+    var x = math.clamp((point.x - this.origin.x) / this.cell, 0f, this.countX - 1.001f);
+    var z = math.clamp((point.y - this.origin.y) / this.cell, 0f, this.countZ - 1.001f);
+    var node = ((int) z * this.countX) + (int) x;
+    var u = x - (int) x;
+    var v = z - (int) z;
+    var below = math.lerp(this.distances[node], this.distances[node + 1], u);
+
+    var above = math.lerp(
+      this.distances[node + this.countX],
+      this.distances[node + this.countX + 1],
+      u
+    );
+
+    return math.lerp(below, above, v);
+  }
+
+  /// <summary>
+  /// The way uphill at a point, of unit length.
+  /// </summary>
+  private float2 Up(float2 point) => math.normalizesafe(this.Slope(point, this.cell));
+
+  /// <summary>
+  /// The field's gradient at a point: unit length on a side of the breakwater, shorter where it
+  /// folds.
+  /// </summary>
+  private float2 Slope(float2 point, float step) {
+    var x = new float2(step, 0f);
+    var z = new float2(0f, step);
+
+    return new float2(
+        this.Sample(point + x) - this.Sample(point - x),
+        this.Sample(point + z) - this.Sample(point - z)
+      ) /
+      (2f * step);
   }
 }
 
 /// <summary>
-/// Writes one cell of a <see cref="ToeField"/>: its signed distance to the toe edges.
+/// Writes one node of a <see cref="ToeField"/>: its distance to the toe edges.
 /// </summary>
 [BurstCompile]
 internal struct ToeDistanceJob : IJobParallelFor {
@@ -168,26 +230,19 @@ internal struct ToeDistanceJob : IJobParallelFor {
   public void Execute(int index) {
     var point = this.origin + (new float2(index % this.countX, index / this.countX) * this.cell);
     var nearest = float.MaxValue;
-    var inside = false;
 
     for (var l = 0; l < this.polygon.Length; l++) {
+      if (!this.toe[l]) {
+        continue;
+      }
+
       var a = this.polygon[l];
-      var b = this.polygon[(l + 1) % this.polygon.Length];
-      var ab = b - a;
+      var ab = this.polygon[(l + 1) % this.polygon.Length] - a;
+      var u = math.saturate(math.dot(point - a, ab) / math.max(math.lengthsq(ab), 1e-6f));
 
-      if (this.toe[l]) {
-        var u = math.saturate(math.dot(point - a, ab) / math.max(math.lengthsq(ab), 1e-6f));
-
-        nearest = math.min(nearest, math.lengthsq(point - a - (u * ab)));
-      }
-
-      // Even-odd crossing count of a ray from the point towards +x.
-      if ((a.y > point.y) != (b.y > point.y) &&
-        point.x < a.x + ((point.y - a.y) / (b.y - a.y) * ab.x)) {
-        inside = !inside;
-      }
+      nearest = math.min(nearest, math.lengthsq(point - a - (u * ab)));
     }
 
-    this.distances[index] = inside ? math.sqrt(nearest) : -math.sqrt(nearest);
+    this.distances[index] = math.sqrt(nearest);
   }
 }
