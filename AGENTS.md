@@ -120,6 +120,7 @@ A save outlives the mod: what the mod writes into one stays harmless with the mo
 
 ## Guidelines
 
+- Fix a layout defect by a rule that holds on every outline, or leave it; never by a case fitted to one site or picture. A defect left is recorded as a limit, by its cause, in `docs/solutions/layout-dead-ends.md`.
 - Build UI from the game's own components and chrome: the `cs2/ui` exports, and the components and class modules the game does not export, reached through `utils/vanilla-modules.ts` with a typed stub under `vanilla-modules` added on demand (its module path from the `cs2-modding-ui` skill). Write custom SCSS only for what vanilla cannot express, so the mod looks native and follows the game's restyles.
 - Every C#↔TS binding goes through a `BreakwaterTool/UI/src/utils/bindings` module, which owns its `const GROUP`, keeps its `bindValue`/`trigger` calls private, and exports typed hooks and command functions. Components call those, never raw `bindValue`/`trigger`.
 - Create value bindings with `lazyBindValue` (not eager `bindValue`) so that importing a module or component does not instantiate engine bindings; call the returned accessor inside the hook, e.g. `useValue(foo$())`.

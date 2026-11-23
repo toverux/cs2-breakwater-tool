@@ -44,3 +44,4 @@ The first `mise test:cs` after an update is slower: it widens the game's new ass
 ## 5. One game cycle
 
 Run one cycle through the `cs2-dev` tools, `restart` with `mod` set to `BreakwaterTool` and a new city: the mod loads from the local build, its UI renders where it did, its settings page opens, the Landscaping item and the editor's toolbar button read "Breakwater Tool" rather than a localization id, and its log holds no error.
+With the tool open, the Stones row shows each stone's own picture for `BoulderRandom01` and a `Rock01` added to it: the Look scenario checks only that the game gives a thumbnail URL, never that it renders.

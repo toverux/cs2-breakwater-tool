@@ -1,6 +1,6 @@
 ---
 name: bwt-game-testing
-description: Write and run the mod's in-game test scenarios, which the game's own test framework runs in the live game. Use when a check needs the running game (systems over live ECS state, a city loaded), when writing or changing a scenario, or when a scenario run fails.
+description: Write and run the mod's in-game test scenarios, which the game's own test framework runs in the live game. Use when a check needs the running game (systems over live ECS state, a city loaded), when writing or changing a scenario, when a scenario run fails, or when setting up the game to look at layouts by eye.
 ---
 
 # In-game testing
@@ -43,3 +43,10 @@ Copy the shape of [`ProvingGroundScenario`](../../../BreakwaterTool/Scenarios/Pr
 
 Every scenario carries `ScenarioRegistry.ScenarioCategory`, `1 << 20`, the `test` tool's default `category`: a bit no category of the game's uses, so the run leaves out the game's scenarios and other mods' `Category.QA` ones.
 On a change of that bit, pass the new number as `category`.
+
+## Looking by eye
+
+Look at layouts on the proving ground in the editor: the main menu's Editor, then `BreakwaterTool.Scenarios.Ground.ProvingGroundLoader.Apply(world)` from the unity eval, the sea set as `ProvingGroundScenario`'s album sets it, and each breakwater fitted to the new terrain.
+Load it into the editor's new map, never under a city: a city keeps its roads and trees at their old heights, standing on walls of terrain.
+Zoom in before judging a layout's density: the editor stops drawing small objects from a camera zoom of about 95 m, which reads as a sparse layout.
+Toggle the tool on and pick a breakwater in separate evals: the tool's `OnStartRunning` runs at its next update, unpicks, and loads the saved look over the pick's.
