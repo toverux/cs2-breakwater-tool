@@ -19,7 +19,7 @@ internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager enti
   /// </summary>
   private const string DefaultStones = "BoulderRandom01";
 
-  // Read once per prefab: a mesh does not change for the session.
+  // [PERF] Read once per prefab, in place of at each lay: a mesh does not change for the session.
   private readonly Dictionary<Entity, StoneShape> shapes = [];
 
   /// <summary>

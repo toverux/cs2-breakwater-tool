@@ -456,13 +456,13 @@ namespace BreakwaterTool.Breakwaters {
     }
 
     /// <summary>
-    /// Creates stones of one prefab, in bulk, which is about twenty times faster than one stone
-    /// at a time.
+    /// Creates stones of one prefab.
     /// </summary>
     private NativeArray<Entity> CreateStones(Entity prefab, StoneState[] stones) {
       var entities = new NativeArray<Entity>(stones.Length, Allocator.Temp);
       var archetype = this.EntityManager.GetComponentData<ObjectData>(prefab).m_Archetype;
 
+      // [PERF] In bulk, in place of one stone at a time.
       this.EntityManager.CreateEntity(archetype, entities);
 
       var hasSeed = this.EntityManager.HasComponent<PseudoRandomSeed>(entities[0]);

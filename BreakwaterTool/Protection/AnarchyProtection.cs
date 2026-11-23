@@ -88,8 +88,8 @@ internal sealed class AnarchyProtection {
     // Anarchy's own code runs in the bridge: whatever it throws skips every stone, so none is laid
     // unprotected.
     try {
-      // The bridge judges a stone by its prefab: asked once, its component then goes on the
-      // prefab's other stones in bulk.
+      // [PERF] The bridge judges a stone by its prefab: asked once, its component then goes on the
+      // prefab's other stones in bulk, in place of asked for each.
       // Its own array form, AddAnarchyComponent(NativeArray<Entity>), runs one past the end of the
       // array (reported upstream). Once fixed, it can replace this bulk add: it checks every stone
       // itself but returns nothing, so count as skipped the stones left without

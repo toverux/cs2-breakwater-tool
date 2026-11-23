@@ -62,7 +62,8 @@ namespace BreakwaterTool.Breakwaters {
     // The toe of the outline drawn or picked, judged each frame; empty under three points.
     private bool[] toe = [];
 
-    // The terrain's heights, read once a frame for the pointer, the ground and the overlay.
+    // [PERF] The terrain's heights, read once a frame, in place of once by each part of the tool
+    // that reads them.
     private TerrainHeightData heights;
 
     // Whether the Landscaping menu entered the tool, until it is left: only then does the menu

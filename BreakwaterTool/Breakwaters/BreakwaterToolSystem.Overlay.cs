@@ -116,7 +116,8 @@ namespace BreakwaterTool.Breakwaters {
           ? BreakwaterToolSystem.HoveredOtherColor
           : BreakwaterToolSystem.OtherColor;
 
-        // Each node lifted once, the end of an edge being the start of the next.
+        // [PERF] Each node lifted once, the end of an edge being the start of the next, in place of
+        // both ends of each edge.
         float3? end = null;
 
         for (var i = 0; i < polygon.Length; i++) {

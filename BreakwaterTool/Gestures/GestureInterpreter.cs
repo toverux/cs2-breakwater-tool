@@ -375,7 +375,8 @@ internal sealed class GestureInterpreter<TKey>(
 
     var ray = (ground - pointer.Eye) / toGround;
 
-    // Each node lifted once, the end of an edge being the start of the next.
+    // [PERF] Each node lifted once, the end of an edge being the start of the next, in place of
+    // both ends of each edge.
     float3? end = null;
 
     for (var i = 0; i < outline.Count; i++) {
