@@ -14,13 +14,31 @@ namespace BreakwaterTool.Gestures;
 /// one's first, and a gesture on one picks its breakwater, as the vanilla area tool edits any area.
 /// </summary>
 /// <typeparam name="TKey">What names a breakwater: its record's entity in the game.</typeparam>
-/// <param name="breakwaters">Every breakwater's outline, which the owner keeps current.</param>
+/// <param name="breakwaters">
+/// The outlines of the breakwaters a gesture can act on, which the owner keeps current.
+/// </param>
 /// <param name="heightAt">The terrain's height at a point, where the nodes lie.</param>
+/// <param name="toeOf">
+/// A breakwater's toe edges where they are picked by hand, null where the layout chooses them.
+/// </param>
+/// <param name="toeChosen">
+/// The toe edges the layout chooses for an outline, one per edge, which the first edge made toe or
+/// not by hand starts from.
+/// </param>
 internal sealed class GestureInterpreter<TKey>(
   IReadOnlyList<(TKey Breakwater, float2[] Outline)> breakwaters,
-  Func<float2, float> heightAt
+  Func<float2, float> heightAt,
+  Func<TKey, IReadOnlyList<bool>?>? toeOf = null,
+  Func<IReadOnlyList<float2>, bool[]>? toeChosen = null
 ) where TKey : struct, IEquatable<TKey> {
   private readonly List<float2> points = [];
+
+  // Per edge of the outline, from its point i to i + 1, whether it is toe, while the picked
+  // breakwater's toe is picked by hand; empty otherwise.
+  private readonly List<bool> toe = [];
+
+  // The toe edges as they were when the held vertex was grabbed.
+  private bool[] toeBeforeDrag = [];
 
   // The outline as it was when the held vertex was grabbed: the secondary button puts it back, and
   // a release that changed nothing lays nothing.
@@ -54,6 +72,18 @@ internal sealed class GestureInterpreter<TKey>(
   internal TKey? Picked { get; private set; }
 
   /// <summary>
+  /// The picked breakwater's toe edges once one was made toe or not by hand, per edge of
+  /// <see cref="Points"/>. Null while the layout chooses the toe.
+  /// </summary>
+  internal IReadOnlyList<bool>? Toe => this.toe.Count > 0 ? this.toe : null;
+
+  /// <summary>
+  /// Whether the picked breakwater shows its toe markers: at rest, no vertex held.
+  /// </summary>
+  internal bool HasToeMarkers =>
+    this.Mode is GestureMode.Editing && this.Held < 0 && this.points.Count >= 3;
+
+  /// <summary>
   /// The index of the vertex the pointer holds, or -1.
   /// </summary>
   internal int Held { get; private set; } = -1;
@@ -73,13 +103,25 @@ internal sealed class GestureInterpreter<TKey>(
   /// Edits a breakwater the tool picked or created, as its outline stands; called again after an
   /// edit the operations refused, it puts the outline back.
   /// </summary>
-  internal void Edit(TKey breakwater, IReadOnlyList<float2> outline) {
+  /// <param name="toeEdges">
+  /// The breakwater's toe edges where they are picked by hand, one per edge of the outline.
+  /// </param>
+  internal void Edit(
+    TKey breakwater,
+    IReadOnlyList<float2> outline,
+    IReadOnlyList<bool>? toeEdges = null
+  ) {
     this.Mode = GestureMode.Editing;
     this.Picked = breakwater;
     this.Held = -1;
 
     this.points.Clear();
     this.points.AddRange(outline);
+    this.toe.Clear();
+
+    if (toeEdges?.Count == outline.Count) {
+      this.toe.AddRange(toeEdges);
+    }
   }
 
   /// <summary>
@@ -91,6 +133,7 @@ internal sealed class GestureInterpreter<TKey>(
     this.Held = -1;
 
     this.points.Clear();
+    this.toe.Clear();
   }
 
   /// <summary>
@@ -113,8 +156,19 @@ internal sealed class GestureInterpreter<TKey>(
       .Where(other => !this.IsPicked(other.Breakwater))
       .Select(static other => (other.Breakwater, (IReadOnlyList<float2>) other.Outline));
 
-    if ((this.AimHandle(picked, pointer, at) ?? this.AimHandle(others, pointer, at)) is {} handle) {
-      return handle;
+    var handle = this.AimHandle(picked, pointer, at) ?? this.AimHandle(others, pointer, at);
+
+    // A node comes first, as in the vanilla area tool, then a toe marker, which floats clear of
+    // its own edge and may lie over another.
+    if (this.HasToeMarkers &&
+      pointer.ToeMarker >= 0 &&
+      pointer.ToeMarker < this.points.Count &&
+      handle is not { Kind: TargetKind.Vertex }) {
+      return new GestureTarget<TKey>(TargetKind.ToeMarker, pointer.ToeMarker);
+    }
+
+    if (handle is {} found) {
+      return found;
     }
 
     return pointer.Under switch {
@@ -126,7 +180,7 @@ internal sealed class GestureInterpreter<TKey>(
 
   /// <summary>
   /// What the press of the primary button does: places a point, closes the outline, picks a
-  /// breakwater, or grabs a vertex, picking its breakwater.
+  /// breakwater, grabs a vertex, picking its breakwater, or makes a toe marker's edge toe or not.
   /// </summary>
   internal Gesture<TKey> Press(Pointer<TKey> pointer) {
     if (this.Held >= 0) {
@@ -156,6 +210,8 @@ internal sealed class GestureInterpreter<TKey>(
       case TargetKind.Breakwater:
         return new Gesture<TKey>(GestureKind.Picked, Breakwater: target.Breakwater);
 
+      case TargetKind.ToeMarker: return this.ToggleToe(target.Index);
+
       case TargetKind.Vertex when pointer.At is {} grabbedAt:
         var grabbing = this.Take(target);
 
@@ -167,9 +223,18 @@ internal sealed class GestureInterpreter<TKey>(
         var inserting = this.Take(target);
         var before = this.points.ToArray();
 
+        var toeBefore = this.toe.ToArray();
+
         this.points.Insert(target.Index + 1, onEdge);
+
+        // Both halves of a split edge are what the edge was.
+        if (this.toe.Count > 0) {
+          this.toe.Insert(target.Index + 1, this.toe[target.Index]);
+        }
+
         this.Grab(target.Index + 1, grabbedAt, isInserted: true);
         this.beforeDrag = before;
+        this.toeBeforeDrag = toeBefore;
 
         return new Gesture<TKey>(GestureKind.Inserted, Breakwater: inserting);
 
@@ -206,11 +271,14 @@ internal sealed class GestureInterpreter<TKey>(
     }
 
     this.Move(pointer);
+
     this.Held = -1;
 
     return this.points.SequenceEqual(this.beforeDrag)
       ? new Gesture<TKey>(GestureKind.Dropped)
-      : new Gesture<TKey>(GestureKind.Reshaped, [.. this.points], this.Picked);
+      : new Gesture<TKey>(GestureKind.Reshaped, [.. this.points], this.Picked) {
+        Toe = this.ToeNow()
+      };
   }
 
   /// <summary>
@@ -220,9 +288,7 @@ internal sealed class GestureInterpreter<TKey>(
   /// </summary>
   internal Gesture<TKey> Secondary(Pointer<TKey> pointer) {
     if (this.Held >= 0) {
-      this.points.Clear();
-      this.points.AddRange(this.beforeDrag);
-      this.Held = -1;
+      this.PutBack();
 
       return new Gesture<TKey>(GestureKind.Dropped);
     }
@@ -245,7 +311,18 @@ internal sealed class GestureInterpreter<TKey>(
         this.Take(vertex);
         this.points.RemoveAt(vertex.Index);
 
-        return new Gesture<TKey>(GestureKind.Reshaped, [.. this.points], this.Picked);
+        // The edge that arrived at the vertex now runs to the next one, and stays what it was.
+        if (this.toe.Count > 0) {
+          this.toe.RemoveAt(vertex.Index);
+
+          if (!this.toe.Contains(true)) {
+            this.toe.Clear();
+          }
+        }
+
+        return new Gesture<TKey>(GestureKind.Reshaped, [.. this.points], this.Picked) {
+          Toe = this.ToeNow()
+        };
 
       case GestureMode.Editing:
         this.Reset();
@@ -263,7 +340,7 @@ internal sealed class GestureInterpreter<TKey>(
 
   /// <summary>
   /// The hint at what <see cref="Aim"/> found at the pointer, for a caller that aims once a frame:
-  /// aiming weighs every edge of every breakwater.
+  /// aiming weighs every edge a gesture can act on.
   /// </summary>
   internal GestureHint Hint(GestureTarget<TKey> target) {
     if (this.Held >= 0) {
@@ -281,6 +358,7 @@ internal sealed class GestureInterpreter<TKey>(
         ? GestureHint.MoveOrRemove
         : GestureHint.Move,
       (_, TargetKind.Edge) => GestureHint.Insert,
+      (_, TargetKind.ToeMarker) => GestureHint.ToggleToe,
       (_, TargetKind.Inside) => GestureHint.Reshape,
       (GestureMode.Editing, _) => GestureHint.StartAnother,
       _ => GestureHint.PlaceFirst
@@ -306,10 +384,51 @@ internal sealed class GestureInterpreter<TKey>(
       return null;
     }
 
-    this.Edit(breakwater, this.OutlineOf(target));
+    this.Edit(breakwater, this.OutlineOf(target), toeOf?.Invoke(breakwater));
 
     return breakwater;
   }
+
+  /// <summary>
+  /// Puts the outline back as it was when the held vertex was grabbed, and lets the vertex go.
+  /// </summary>
+  private void PutBack() {
+    this.points.Clear();
+    this.points.AddRange(this.beforeDrag);
+
+    if (this.isInserted) {
+      this.toe.Clear();
+      this.toe.AddRange(this.toeBeforeDrag);
+    }
+
+    this.Held = -1;
+  }
+
+  /// <summary>
+  /// Makes an edge of the picked breakwater toe or not, starting from the toe the layout chose
+  /// where none was picked by hand yet; refused on the last toe edge, as the rows start on the toe.
+  /// </summary>
+  private Gesture<TKey> ToggleToe(int edge) {
+    var edges = this.toe.Count > 0 ? this.toe.ToArray() : toeChosen?.Invoke(this.points);
+
+    if (edges?.Length != this.points.Count) {
+      return new Gesture<TKey>(GestureKind.None);
+    }
+
+    if (edges[edge] && edges.Count(static isToe => isToe) == 1) {
+      return new Gesture<TKey>(GestureKind.Refused, Refusal: GestureRefusal.KeepsToe);
+    }
+
+    edges[edge] = !edges[edge];
+    this.toe.Clear();
+    this.toe.AddRange(edges);
+
+    return new Gesture<TKey>(GestureKind.ToeToggled, [.. this.points], this.Picked) {
+      Toe = edges
+    };
+  }
+
+  private bool[]? ToeNow() => this.toe.Count > 0 ? [.. this.toe] : null;
 
   private void Grab(int vertex, float2 at, bool isInserted) {
     this.Held = vertex;
@@ -495,8 +614,16 @@ internal enum GestureMode {
 /// <param name="Eye">
 /// Where the pointer's ray starts, the camera: an edge answers the ray, a node the ground.
 /// </param>
-internal readonly record struct Pointer<TKey>(float2? At, float Reach, TKey? Under, float3 Eye)
-  where TKey : struct;
+/// <param name="ToeMarker">
+/// The edge of the picked breakwater whose toe marker the pointer's ray is on, or -1.
+/// </param>
+internal readonly record struct Pointer<TKey>(
+  float2? At,
+  float Reach,
+  TKey? Under,
+  float3 Eye,
+  int ToeMarker = -1
+) where TKey : struct;
 
 internal enum TargetKind {
   /// <summary>
@@ -526,6 +653,11 @@ internal enum TargetKind {
   Edge,
 
   /// <summary>
+  /// The toe marker of an edge of the picked breakwater, where a press makes the edge toe or not.
+  /// </summary>
+  ToeMarker,
+
+  /// <summary>
   /// The picked breakwater's area, away from its handles.
   /// </summary>
   Inside,
@@ -536,7 +668,9 @@ internal enum TargetKind {
   Breakwater
 }
 
-/// <param name="Index">The vertex, or the edge, from point i to i + 1.</param>
+/// <param name="Index">
+/// The vertex, or the edge, from point i to i + 1, a toe marker's edge included.
+/// </param>
 /// <param name="Breakwater">The breakwater a press picks, or whose vertex or edge it is.</param>
 /// <param name="At">The point of the edge a press inserts a vertex at.</param>
 internal readonly record struct GestureTarget<TKey>(
@@ -604,6 +738,11 @@ internal enum GestureKind {
   Dropped,
 
   /// <summary>
+  /// A click made an edge toe or not: the gesture carries the outline and its toe edges.
+  /// </summary>
+  ToeToggled,
+
+  /// <summary>
   /// The gesture does nothing, for a reason the player is told.
   /// </summary>
   Refused
@@ -620,7 +759,12 @@ internal enum GestureRefusal {
   /// <summary>
   /// A breakwater keeps three vertices at least.
   /// </summary>
-  KeepsThree
+  KeepsThree,
+
+  /// <summary>
+  /// The edge is the last of the toe, where the rows start.
+  /// </summary>
+  KeepsToe
 }
 
 /// <param name="Polygon">The outline to create or lay, for a close or a reshape.</param>
@@ -632,7 +776,13 @@ internal readonly record struct Gesture<TKey>(
   float2[]? Polygon = null,
   TKey? Breakwater = null,
   GestureRefusal Refusal = GestureRefusal.None
-) where TKey : struct;
+) where TKey : struct {
+  /// <summary>
+  /// The outline's toe edges after the gesture, where they are picked by hand; null where the
+  /// layout chooses them.
+  /// </summary>
+  internal bool[]? Toe { get; init; }
+}
 
 /// <summary>
 /// The hint at the pointer, each the gestures its place allows.
@@ -659,6 +809,8 @@ internal enum GestureHint {
   Reshape,
 
   StartAnother,
+
+  ToggleToe,
 
   Release
 }

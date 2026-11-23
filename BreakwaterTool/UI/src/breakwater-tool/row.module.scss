@@ -1,0 +1,11 @@
+@use "../common";
+
+.row {
+  @include common.stable-class;
+
+  // The balloon is narrower than the room the game leaves on the panel's left: a balloon that
+  // does not fit on its side is moved to the other, over the map.
+  &-balloon {
+    max-width: 190rem;
+  }
+}

@@ -73,6 +73,16 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
   /// </summary>
   private const string GoneStone = "BreakwaterTool gone boulder";
 
+  /// <summary>
+  /// The name the API story's breakwater goes by among the laid sites.
+  /// </summary>
+  private const string ApiSite = "api";
+
+  /// <summary>
+  /// The toe the API story picks on <see cref="ApiOutline"/>: its first edge alone.
+  /// </summary>
+  private static readonly bool[] ApiToe = [true, false, false, false];
+
   // The stones each breakwater is expected to hold, by record, kept from step to step.
   private readonly Dictionary<Entity, Stone[]> expected = [];
 
@@ -100,6 +110,21 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
   /// Where the save story lays the breakwater of the prefab it removes.
   /// </summary>
   private static float2[] GoneOutline => ProvingGroundScenario.Inland(1600f);
+
+  /// <summary>
+  /// Where the API story lays a built-in style, tumbled, then with the toe rule's parameters.
+  /// </summary>
+  private static float2[] ApiOutline => ProvingGroundScenario.Inland(2000f);
+
+  /// <summary>
+  /// The parameters the API story ends on, which the saves keep.
+  /// </summary>
+  private static BreakwaterParameters ApiParameters =>
+    BreakwaterParameters.Default with {
+      Tumble = 0.2f,
+      ToeShare = 0.6f,
+      LevelHeight = 0.5f
+    };
 
   protected override Task OnPrepare() {
     this.userEditorOption = BreakwaterSystem.DebugEditorOption;
@@ -460,9 +485,14 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
     await this.EnsureGround();
 
     var site = ProvingGroundScenario.Control;
+    var record = this.records[site.Name];
+
+    this.Check(!BreakwaterApi.IsOutdated(record), $"Before the edit, {site.Name} is not outdated.");
+
     var rise = await this.Raise(site.Outline);
 
     this.Check(rise > 1f, $"The ground under {site.Name} rises {rise:F1} m.");
+    this.Check(BreakwaterApi.IsOutdated(record), $"Raised under it, {site.Name} is outdated.");
     this.CheckCity($"Raised under {site.Name}");
 
     await this.Finish();
@@ -644,6 +674,56 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
 
   [Test]
   [UsedImplicitly]
+  private async Task Api_LaysAStyleWithItsParametersAndAPickedToe() {
+    await this.EnsureGround();
+
+    var style = BreakwaterApi.Style(BreakwaterStyles.Default);
+
+    this.Check(
+      style is { StonePrefabs.Length: > 0 } && BreakwaterApi.Styles.Contains(style.Name),
+      $"The API lists the {BreakwaterStyles.Default} style and gives its " +
+      $"{style?.StonePrefabs.Length ?? 0} stones."
+    );
+
+    if (style is null) {
+      await this.Finish();
+
+      return;
+    }
+
+    var tumbled = style.Parameters with {
+      Tumble = 0.35f
+    };
+
+    var record = await this.Lay(
+      ProvingGroundScenario.ApiSite,
+      ProvingGroundScenario.ApiOutline,
+      style.StonePrefabs,
+      tumbled
+    );
+
+    this.CheckApiRead(record, tumbled, null, "Created from the style, tumbled");
+    this.CheckCity("Created through the API from the style, tumbled");
+
+    var toe = ProvingGroundScenario.ApiToe;
+    var parameters = ProvingGroundScenario.ApiParameters;
+
+    await this.EditApi(record, toe, null, "Given a toe through the API");
+    this.CheckApiRead(record, tumbled, toe, "Given a toe");
+
+    // The layout chooses the toe again, by the toe rule's parameters.
+    await this.EditApi(record, [], parameters, "Given the toe rule's parameters and no toe");
+    this.CheckApiRead(record, parameters, null, "Given the toe rule's parameters and no toe");
+
+    // The saves keep it so.
+    await this.EditApi(record, toe, null, "Given the toe again");
+    this.CheckApiRead(record, parameters, toe, "Given the toe again");
+
+    await this.Finish();
+  }
+
+  [Test]
+  [UsedImplicitly]
   private async Task Saves_KeepEveryStone() {
     await this.EnsureGround();
 
@@ -708,6 +788,18 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
     this.CheckRecords("The saved city, loaded", gone);
     this.CheckGone(gone, goneLaid);
 
+    var api = BreakwaterApi.List()
+      .FirstOrDefault(static record =>
+        BreakwaterApi.Read(record)?.Polygon.SequenceEqual(ProvingGroundScenario.ApiOutline) is true
+      );
+
+    this.CheckApiRead(
+      api,
+      ProvingGroundScenario.ApiParameters,
+      ProvingGroundScenario.ApiToe,
+      "The saved city, loaded, holds the API's breakwater:"
+    );
+
     var why = BreakwaterApi.FitToTerrain(gone);
 
     await this.WaitFrames(2);
@@ -741,10 +833,16 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
 
     var before = this.expected[level];
 
+    this.Check(
+      BreakwaterApi.IsOutdated(level),
+      "Raised in the editor and saved, the control site loads outdated."
+    );
+
     this.Check(BreakwaterApi.FitToTerrain(level) is null, "The control site is fitted.");
 
     await this.WaitFrames(2);
 
+    this.Check(!BreakwaterApi.IsOutdated(level), "Fitted, the control site is no longer outdated.");
     this.Expect(level);
 
     var reseated = CityStones.Compare(before, this.expected[level]);
@@ -855,6 +953,51 @@ internal sealed class ProvingGroundScenario : ModTestScenario {
     this.records[name] = outcome.Breakwater;
 
     return outcome.Breakwater;
+  }
+
+  /// <summary>
+  /// Edits a breakwater's toe and eventually its parameters through the API, then checks the city
+  /// holds the game's own plan for it.
+  /// </summary>
+  private async Task EditApi(
+    Entity record,
+    bool[] toe,
+    BreakwaterParameters? parameters,
+    string step
+  ) {
+    this.Check(
+      BreakwaterApi.Edit(record, parameters: parameters, toeEdges: toe) is null,
+      $"{step}: the edit lays."
+    );
+
+    await this.WaitFrames(2);
+
+    this.Expect(record);
+    this.CheckCity(step);
+  }
+
+  /// <summary>
+  /// Checks that the API reads a breakwater's parameters and toe as given, a null toe being the
+  /// layout's choice.
+  /// </summary>
+  private void CheckApiRead(
+    Entity record,
+    BreakwaterParameters parameters,
+    bool[]? toe,
+    string step
+  ) {
+    var info = BreakwaterApi.Read(record);
+    var isToe = toe is null ? info?.ToeEdges is null : info?.ToeEdges?.SequenceEqual(toe) is true;
+
+    var read = info?.ToeEdges is {} edges
+      ? string.Concat(edges.Select(static edge => edge ? '1' : '0'))
+      : "the layout's";
+
+    this.Check(
+      info?.Parameters == parameters && isToe,
+      $"{step}, the API reads its parameters ({info?.Parameters == parameters}) and its toe " +
+      $"({read})."
+    );
   }
 
   /// <summary>

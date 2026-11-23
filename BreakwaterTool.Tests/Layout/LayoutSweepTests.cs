@@ -40,7 +40,12 @@ public sealed class LayoutSweepTests {
       return;
     }
 
-    var share = BrickBond.BrokenShare(ground.Outline, result, ground.Stones, ground.Parameters);
+    var share = BrickBond.BrokenShareOutsideFans(
+      ground.Outline,
+      result,
+      ground.Stones,
+      ground.Parameters
+    );
 
     Assert.InRange(share, 0f, BrickBond.MostBroken);
   }
@@ -64,6 +69,121 @@ public sealed class LayoutSweepTests {
       }
     );
   }
+
+  [Theory]
+  [MemberData(nameof(LayoutSweepTests.Seeds))]
+  public void Lay_MarkedToe_KeepsTheInvariants(uint seed) {
+    var ground = LayoutSweepTests.Generate(seed);
+
+    foreach (var toe in LayoutSweepTests.MarkedToes(ground)) {
+      var result = ground.Lay(layers: 1, toe);
+
+      Assert.Equal(LayoutVerdict.Laid, result.Verdict);
+      Assert.Equal(toe, result.ToeEdges);
+
+      ground.AssertKeepsTheInvariants(result);
+    }
+  }
+
+  [Theory]
+  [MemberData(nameof(LayoutSweepTests.Seeds))]
+  public void Lay_MarkedToe_KeepsTheBrickBond(uint seed) {
+    var ground = LayoutSweepTests.Generate(seed);
+
+    foreach (var toe in LayoutSweepTests.MarkedToes(ground)) {
+      var result = ground.Lay(layers: 1, toe);
+
+      if (result.RowSpacing > 3f * result.StoneSpacing) {
+        continue;
+      }
+
+      var share = BrickBond.BrokenShareOutsideFans(
+        ground.Outline,
+        result,
+        ground.Stones,
+        ground.Parameters
+      );
+
+      Assert.True(
+        share <= BrickBond.MostBroken,
+        $"Seed {seed}, toe {LayoutSweepTests.Format(toe)}: {share}"
+      );
+    }
+  }
+
+  /// <summary>
+  /// A stress draw: toes no player marks on purpose, scattered over the outline in up to eight
+  /// runs, whose rows meet from every side. A junction of three runs or more stacks a few stones
+  /// out of the bond, so only the invariants hold there.
+  /// </summary>
+  [Theory]
+  [MemberData(nameof(LayoutSweepTests.Seeds))]
+  public void Lay_ScatteredToe_KeepsTheInvariants(uint seed) {
+    var ground = LayoutSweepTests.Generate(seed);
+    var random = new Random((seed * 40503u) + 7u);
+
+    for (var set = 0; set < 8; set++) {
+      var share = random.NextFloat(0.1f, 0.7f);
+      var toe = new bool[ground.Outline.Length];
+
+      for (var i = 0; i < toe.Length; i++) {
+        toe[i] = random.NextFloat() < share;
+      }
+
+      toe[random.NextInt(toe.Length)] = true;
+
+      var result = ground.Lay(layers: 1, toe);
+
+      Assert.Equal(LayoutVerdict.Laid, result.Verdict);
+
+      ground.AssertKeepsTheInvariants(result);
+    }
+  }
+
+  /// <summary>
+  /// Eight toes as a player marks them. Four are the layout's own choice with one or two edges
+  /// changed, as the first click on a marker starts from it; four are one to three runs of
+  /// consecutive edges, each up to a third of the outline long.
+  /// A marked toe is held to the automatic toe's bounds, as marking is the everyday way to set a
+  /// toe: no bound is loosened for it.
+  /// </summary>
+  private static IEnumerable<bool[]> MarkedToes(Ground ground) {
+    var random = new Random((ground.Seed * 40503u) + 7u);
+    var edges = ground.Outline.Length;
+    var chosen = BreakwaterLayout.ToeEdges(ground.Outline, ground.Host, ground.Parameters);
+
+    for (var set = 0; set < 4; set++) {
+      var toe = chosen.ToArray();
+
+      for (var clicks = random.NextInt(1, 3); clicks > 0; clicks--) {
+        var edge = random.NextInt(edges);
+
+        // The tool keeps the last toe edge.
+        if (!toe[edge] || toe.Count(static isToe => isToe) > 1) {
+          toe[edge] = !toe[edge];
+        }
+      }
+
+      yield return toe;
+    }
+
+    for (var set = 0; set < 4; set++) {
+      var toe = new bool[edges];
+
+      for (var runs = random.NextInt(1, 4); runs > 0; runs--) {
+        var start = random.NextInt(edges);
+
+        for (var length = random.NextInt(1, math.max(2, edges / 3) + 1); length > 0; length--) {
+          toe[(start + length - 1) % edges] = true;
+        }
+      }
+
+      yield return toe;
+    }
+  }
+
+  private static string Format(IEnumerable<bool> toe) =>
+    string.Concat(toe.Select(static isToe => isToe ? '1' : '0'));
 
   /// <summary>
   /// A bank, u along the toe and v up the slope, turned and moved over the plan.
@@ -199,14 +319,15 @@ public sealed class LayoutSweepTests {
 
     internal required ILayoutHost Host { get; init; }
 
-    internal LayoutResult Lay(int layers) =>
+    internal LayoutResult Lay(int layers, IReadOnlyList<bool>? toe = null) =>
       BreakwaterLayout.Lay(
         this.Outline,
         this.Stones,
         this.Parameters with {
           Layers = layers
         },
-        this.Host
+        this.Host,
+        toe
       );
 
     internal void AssertKeepsTheInvariants(LayoutResult result) {

@@ -34,6 +34,8 @@ internal sealed partial class ToeField {
   // [PERF] An array, in place of the list given, whose items Mono reads through an interface.
   private readonly float2[] outline;
 
+  private readonly bool[] toe;
+
   private readonly float[] distances;
 
   private readonly float2 origin;
@@ -75,6 +77,7 @@ internal sealed partial class ToeField {
     }
 
     this.outline = polygon.ToArray();
+    this.toe = toe.ToArray();
     this.origin = min - (ToeField.Margin * cell);
     this.cell = cell;
     this.countX = ToeField.Count(span.x, cell);
@@ -134,6 +137,28 @@ internal sealed partial class ToeField {
   }
 
   internal bool Contains(float2 point) => GroundCheck.Contains(this.outline, point);
+
+  /// <summary>
+  /// How far a point is from the nearest of the outline's edges off the toe, infinite when every
+  /// edge is toe.
+  /// </summary>
+  internal float OffToeDistance(float2 point) {
+    var nearest = float.PositiveInfinity;
+
+    for (var i = 0; i < this.outline.Length; i++) {
+      if (this.toe[i]) {
+        continue;
+      }
+
+      var a = this.outline[i];
+      var ab = this.outline[(i + 1) % this.outline.Length] - a;
+      var u = math.saturate(math.dot(point - a, ab) / math.max(math.lengthsq(ab), 1e-6f));
+
+      nearest = math.min(nearest, math.distance(point, a + (u * ab)));
+    }
+
+    return nearest;
+  }
 
   /// <summary>
   /// Whether the outline ends less than a distance uphill of a point.

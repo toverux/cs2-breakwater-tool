@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using BreakwaterTool.Layout;
 using Game.Common;
+using Game.Objects;
 using Game.Prefabs;
 using Game.Tools;
 using Unity.Collections;
@@ -140,7 +141,7 @@ namespace BreakwaterTool.Breakwaters {
     internal static StoneState[]? DebugPlan(Entity record) {
       var system = BreakwaterSystem.Instance;
 
-      return system.Read(record) is {} state && system.Plan(state, out var stones) is null
+      return system.Read(record) is {} state && system.Plan(ref state, out var stones) is null
         ? stones
         : null;
     }
@@ -182,6 +183,27 @@ namespace BreakwaterTool.Breakwaters {
             string.Join(", ", group.Take(names).Select(system.catalog.Name))
           )
       );
+    }
+
+    /// <summary>
+    /// The plants Clear vegetation reaches within a distance of a point, and the nearest one's
+    /// place.
+    /// </summary>
+    internal static string DebugPlants(float x, float z, float radius) {
+      var system = BreakwaterSystem.Instance;
+
+      using var transforms =
+        system.plantsQuery.ToComponentDataArray<Transform>(Allocator.Temp);
+
+      var at = new float2(x, z);
+
+      var near = transforms.ToArray()
+        .Select(transform => transform.m_Position.xz)
+        .OrderBy(plant => math.distance(plant, at))
+        .ToArray();
+
+      return $"{near.Count(plant => math.distance(plant, at) <= radius)} of {near.Length} plants " +
+        $"within {radius} m, the nearest at {near.FirstOrDefault()}";
     }
 
     /// <summary>

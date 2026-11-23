@@ -1,0 +1,12 @@
+@use "../common";
+
+.advanced {
+  &-toggle,
+  &-option {
+    @include common.stable-class;
+  }
+
+  &-rows {
+    @include common.stable-class;
+  }
+}

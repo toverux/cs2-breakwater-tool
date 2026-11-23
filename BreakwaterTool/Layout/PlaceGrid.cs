@@ -5,7 +5,8 @@ using Unity.Mathematics;
 namespace BreakwaterTool.Layout;
 
 /// <summary>
-/// The places of a layer: the ones taken, and the ones refused for standing too near them.
+/// The places of a layer: the ones taken, the ones refused for standing too near them, and the
+/// corners of its rows.
 /// </summary>
 /// <param name="gap">The most that two places may have to be apart.</param>
 /// <param name="room">
@@ -19,13 +20,13 @@ internal sealed class PlaceGrid(float gap, float room) {
   private const float Hole = 1.1f;
 
   /// <summary>
-  /// How far round a refused place the taken ones are read, in rooms: to a room and a half past the
+  /// How far round a place watched the taken ones are read, in rooms: to a room and a half past the
   /// spots weighed.
   /// </summary>
   private const float Sight = 2.5f;
 
   /// <summary>
-  /// How many spots round a refused place are weighed.
+  /// How many spots round a place watched are weighed.
   /// </summary>
   private const int SpotCount = 48;
 
@@ -35,9 +36,9 @@ internal sealed class PlaceGrid(float gap, float room) {
   private const float GoldenAngle = 2.3999632f;
 
   /// <summary>
-  /// The spots weighed, from the refused place, in rooms: a spiral that fills a circle of one.
+  /// The spots weighed, from the place watched, in rooms: a spiral that fills a circle of one.
   /// </summary>
-  // [PERF] Placed once, in place of round each refused place.
+  // [PERF] Placed once, in place of round each place watched.
   private static readonly float2[] Spots = [
     .. Enumerable.Range(0, PlaceGrid.SpotCount)
       .Select(static i => {
@@ -50,7 +51,8 @@ internal sealed class PlaceGrid(float gap, float room) {
 
   private readonly SpatialIndex taken = new(gap);
 
-  private readonly List<RowPlace> refused = [];
+  // Where holes are looked for: round the refused places and the corners of the rows.
+  private readonly List<RowPlace> watched = [];
 
   private readonly List<float2> near = [];
 
@@ -62,7 +64,7 @@ internal sealed class PlaceGrid(float gap, float room) {
     this.taken.Near(place.Position, this.near);
 
     if (this.SquaredRoom(place.Position) < least * least) {
-      this.refused.Add(place);
+      this.watched.Add(place);
 
       return false;
     }
@@ -73,13 +75,19 @@ internal sealed class PlaceGrid(float gap, float room) {
   }
 
   /// <summary>
-  /// Takes the roomiest spot round each refused place that is a hole: rows that meet at an angle
-  /// leave one beside the places they lose.
+  /// Looks for a hole round a row's corner too, where the row turns: rows that meet at a mitre can
+  /// leave one with no place refused.
+  /// </summary>
+  internal void Watch(RowPlace corner) => this.watched.Add(corner);
+
+  /// <summary>
+  /// Takes the roomiest spot round each refused place and corner that is a hole: rows that meet at
+  /// an angle leave one beside the places they lose.
   /// </summary>
   internal List<RowPlace> TakeHoles(ToeField field) {
     var holes = new List<RowPlace>();
 
-    if (this.refused.Count == 0) {
+    if (this.watched.Count == 0) {
       return holes;
     }
 
@@ -90,7 +98,7 @@ internal sealed class PlaceGrid(float gap, float room) {
       index.Add(point);
     }
 
-    foreach (var place in this.refused) {
+    foreach (var place in this.watched) {
       // [PERF] Read once for all the spots round the place, in place of once a spot.
       index.Near(place.Position, this.near);
 

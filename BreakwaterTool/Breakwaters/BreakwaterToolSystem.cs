@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using BreakwaterTool.Gestures;
 using BreakwaterTool.Layout;
@@ -34,8 +35,24 @@ namespace BreakwaterTool.Breakwaters {
     /// </summary>
     internal const string Id = "BreakwaterTool";
 
-    // The city's breakwaters, read again when the operations' revision moves.
+    /// <summary>
+    /// The room an outline's box keeps above and below its ground, in metres.
+    /// </summary>
+    private const float BoxMargin = 100f;
+
+    // The city's breakwaters, each with the box its outline lies in, read again when the
+    // operations' revision moves, and the toe edges of those whose toe is picked by hand.
+    private readonly List<(Entity Record, float2[] Outline, Bounds Box)> city = [];
+
+    // The breakwaters in view this frame, which the overlay draws, and those of them the pointer's
+    // ray passes, which a gesture can act on.
+    private readonly List<(Entity Record, float2[] Outline, Bounds Box)> inView = [];
+
     private readonly List<(Entity Record, float2[] Outline)> outlines = [];
+
+    private readonly Plane[] frustum = new Plane[6];
+
+    private readonly Dictionary<Entity, bool[]> toes = [];
 
     private readonly GestureInterpreter<Entity> gestures;
 
@@ -71,7 +88,12 @@ namespace BreakwaterTool.Breakwaters {
     private bool isEnteredFromMenu;
 
     public BreakwaterToolSystem() {
-      this.gestures = new GestureInterpreter<Entity>(this.outlines, this.HeightAt);
+      this.gestures = new GestureInterpreter<Entity>(
+        this.outlines,
+        this.HeightAt,
+        record => this.toes.GetValueOrDefault(record),
+        this.ChooseToe
+      );
     }
 
     public override string toolID => BreakwaterToolSystem.Id;
@@ -143,7 +165,7 @@ namespace BreakwaterTool.Breakwaters {
         return;
       }
 
-      if (this.EditPicked(picked, null) is null) {
+      if (this.EditPicked(picked, new BreakwaterChange()) is null) {
         this.PlaySound(static sounds => sounds.m_PolygonToolFinishAreaSound);
       }
       else {
@@ -159,13 +181,18 @@ namespace BreakwaterTool.Breakwaters {
         return;
       }
 
+      // A value a slider left waiting is reverted with the rest.
+      this.waiting = null;
+
       var why = this.breakwaters.Revert(snapshot);
 
       this.Settle(why, snapshot.Record);
 
-      // Put back as picked, the breakwater has nothing left to revert until its next edit.
+      // Put back as picked, the breakwater has nothing left to revert until its next edit, and its
+      // stones are a style's as a pick reads them.
       if (why is null) {
         this.snapshot = null;
+        this.ReadStyleStones();
       }
 
       this.PlaySound(static sounds => sounds.m_PolygonToolRemovePointSound);
@@ -179,6 +206,7 @@ namespace BreakwaterTool.Breakwaters {
         return;
       }
 
+      this.waiting = null;
       this.breakwaters.Delete(picked);
       this.Unpick();
       this.PlaySound(static sounds => sounds.m_PolygonToolDeleteAreaSound);
@@ -194,6 +222,7 @@ namespace BreakwaterTool.Breakwaters {
 
       this.OnCreateHints();
       this.OnCreateOverlay();
+      this.OnCreateStones();
 
       // The key binding works wherever a tool can be used, the tool active or not.
       this.toggleAction = Mod.Settings.GetAction(nameof(Settings.KeyBindingToggleTool));
@@ -211,16 +240,18 @@ namespace BreakwaterTool.Breakwaters {
     /// The tool's item in the Landscaping menu while the menu entered the tool, which keeps it
     /// selected there; null otherwise, as the toolbar opens the menu of the prefab a tool returns.
     /// </summary>
-    public override PrefabBase? GetPrefab() => this.isEnteredFromMenu ? this.Prefab : null;
+    public override PrefabBase? GetPrefab() =>
+      this.offered ?? (this.isEnteredFromMenu ? this.Prefab : null);
 
     public override bool TrySetPrefab(PrefabBase prefab) {
-      if (prefab is not BreakwaterToolPrefab) {
-        return false;
+      if (prefab is BreakwaterToolPrefab) {
+        this.isEnteredFromMenu = true;
+        this.offered = null;
+
+        return true;
       }
 
-      this.isEnteredFromMenu = true;
-
-      return true;
+      return this.IsActive && this.TakeOffer(prefab);
     }
 
     public override void InitializeRaycast() {
@@ -238,42 +269,69 @@ namespace BreakwaterTool.Breakwaters {
 
       this.Unpick();
       this.outlinesRevision = uint.MaxValue;
+
+      // A reset of the mod's settings empties the look kept, which the tool then reads again in
+      // place of keeping its own.
+      if (Mod.Settings.LastLook is "") {
+        this.isLookLoaded = false;
+      }
+
+      this.LoadLook();
     }
 
     protected override void OnStopRunning() {
       // An outline not closed is no breakwater, and a vertex held is let go where it was.
       this.Unpick();
       this.isEnteredFromMenu = false;
+      this.offered = null;
+      this.SaveLook();
 
       base.OnStopRunning();
     }
 
+    /// <summary>
+    /// Runs a frame of the Debug build's scripted drag, which times a slider's re-lays.
+    /// </summary>
+    partial void OnBenchFrame();
+
     protected override JobHandle OnUpdate(JobHandle inputDeps) {
+      this.OnBenchFrame();
+
       // The tool makes no temporary entities of its own, so it clears every frame what the tool
       // before it left, as the hovered object's outline: only the active tool's mode runs a clear.
       this.applyMode = ApplyMode.Clear;
 
+      this.heights = this.terrainSystem.GetHeightData(waitForPending: true);
       this.ReadOutlines();
 
       // A breakwater deleted by another way than the tool's leaves the pick.
       if (this.gestures.Picked is {} picked && !this.breakwaters.IsBreakwater(picked)) {
+        this.waiting = null;
         this.Unpick();
       }
 
+      this.LayChoice();
+
       this.view = View.Of(Camera.main);
-      this.heights = this.terrainSystem.GetHeightData(waitForPending: true);
+      this.CullOutlines();
+      this.ReadToeMarkers();
       this.pointer = this.ReadPointer();
 
       if (!this.m_FocusChanged) {
         this.Interpret();
       }
 
+      // After the gestures, so that a drag's release lays the drag, the waiting value with it: a
+      // lay before would put back the outline the record holds.
+      this.LayRested();
+
       this.JudgeGround();
+      this.WatchGround();
 
       var target = this.gestures.Aim(this.pointer);
 
       this.Hint = this.gestures.Hint(target);
-      this.ShowHints();
+      this.ShowHints(target);
       this.DrawOverlay(target);
 
       return inputDeps;
@@ -351,13 +409,24 @@ namespace BreakwaterTool.Breakwaters {
         case GestureKind.Unpicked: this.Unpick(); break;
 
         case GestureKind.Grabbed or GestureKind.Inserted:
+          // A press on another breakwater's vertex or edge picks it as it grabs.
+          if (gesture.Breakwater is {} grabbed) {
+            this.TakePick(grabbed);
+          }
+
           this.PlaySound(static sounds => sounds.m_PolygonToolSelectPointSound);
 
           break;
 
         case GestureKind.Reshaped
           when gesture is { Breakwater: {} breakwater, Polygon: {} polygon }:
-          this.Reshape(breakwater, polygon);
+          this.Reshape(breakwater, polygon, gesture.Toe);
+
+          break;
+
+        case GestureKind.ToeToggled when gesture is { Breakwater: {} breakwater, Toe: {} edges }:
+          this.EditPicked(breakwater, new BreakwaterChange(Toe: edges));
+          this.PlaySound(static sounds => sounds.m_PolygonToolSelectPointSound);
 
           break;
 
@@ -375,11 +444,14 @@ namespace BreakwaterTool.Breakwaters {
     }
 
     private void Create(float2[] polygon) {
-      // The stones and the parameters are the defaults until the panel chooses them.
+      var watch = Stopwatch.StartNew();
       var why = this.breakwaters.Create(
-        polygon,
-        this.breakwaters.DefaultChoice(),
-        BreakwaterParameters.Default,
+        new BreakwaterState(
+          polygon,
+          [.. this.choice],
+          this.Parameters,
+          StoneProtectionKind.Anarchy
+        ),
         out var record
       );
 
@@ -391,28 +463,50 @@ namespace BreakwaterTool.Breakwaters {
         return;
       }
 
+      this.layoutCosts[record] = watch.Elapsed.TotalMilliseconds;
       this.gestures.Edit(record, polygon);
       this.snapshot = null;
       this.PlaySound(static sounds => sounds.m_PolygonToolFinishAreaSound);
     }
 
     private void Pick(Entity record) {
+      if (this.TakePick(record) is {} state) {
+        this.gestures.Edit(record, state.Polygon, state.Toe);
+      }
+    }
+
+    /// <summary>
+    /// Takes a breakwater the gestures or the panel picked: lays what a slider left waiting on the
+    /// one before, and shows its look, which a new breakwater starts from.
+    /// </summary>
+    /// <returns>What the breakwater's record holds, or null when it is none.</returns>
+    private BreakwaterState? TakePick(Entity record) {
+      this.LayWaiting();
+
       if (this.breakwaters.Read(record) is not {} state) {
-        return;
+        return null;
       }
 
-      this.gestures.Edit(record, state.Polygon);
       this.snapshot = null;
+      this.ShowLook(state);
+      this.ReadStyleStones();
+      this.isOutdatedDue = true;
+
+      return state;
     }
 
     private void Unpick() {
+      this.LayWaiting();
       this.gestures.Reset();
       this.snapshot = null;
       this.Refusal = null;
+      this.IsOutdated = false;
+      this.LookRevision++;
     }
 
-    private void Reshape(Entity record, float2[] polygon) {
-      this.EditPicked(record, polygon);
+    private void Reshape(Entity record, float2[] polygon, bool[]? toeEdges) {
+      // No toe edge left by hand hands the toe back to the layout.
+      this.EditPicked(record, new BreakwaterChange(polygon, Toe: toeEdges ?? []));
 
       // The drop sound whether the edit lays or not, as the vanilla area tool plays it on every
       // vertex dropped (decompile: AreaToolSystem, State.Modify).
@@ -424,13 +518,19 @@ namespace BreakwaterTool.Breakwaters {
     /// as it stood before, for Revert.
     /// </summary>
     /// <returns>Why the edit laid nothing, or null.</returns>
-    private string? EditPicked(Entity record, float2[]? polygon) {
+    private string? EditPicked(Entity record, BreakwaterChange change) {
+      change = this.TakeWaiting(record, change);
+
       var before = this.snapshot ?? this.breakwaters.Snapshot(record);
-      var why = this.breakwaters.Edit(record, polygon, null, null);
+      var watch = Stopwatch.StartNew();
+      var why = this.breakwaters.Edit(record, change);
+      var cost = watch.Elapsed.TotalMilliseconds;
 
       this.Settle(why, record);
 
+      // A refused edit lays nothing, so its time says nothing of the layout's.
       if (why is null) {
+        this.layoutCosts[record] = cost;
         this.snapshot = before;
       }
 
@@ -445,9 +545,13 @@ namespace BreakwaterTool.Breakwaters {
       // and show as an empty refusal.
       this.Refusal = why is null ? (LocalizedString?) null : this.Explain(why);
 
+      // The panel shows what the record holds, whatever the edit asked for.
       if (this.breakwaters.Read(record) is {} state) {
-        this.gestures.Edit(record, state.Polygon);
+        this.gestures.Edit(record, state.Polygon, state.Toe);
+        this.ShowLook(state);
       }
+
+      this.isOutdatedDue = true;
     }
 
     /// <summary>
@@ -455,6 +559,10 @@ namespace BreakwaterTool.Breakwaters {
     /// and any other reason is quoted.
     /// </summary>
     private LocalizedString Explain(string why) {
+      if (this.breakwaters.LastRefusal is not StoneRefusal.None and var refusal) {
+        return LocalizedString.Id($"BreakwaterTool.Tool.NOTHING_LAID[{refusal}]");
+      }
+
       if (this.breakwaters.LastLayout is { Verdict: not LayoutVerdict.Laid } layout) {
         return LocalizedString.Id(
           $"BreakwaterTool.Tool.NOTHING_LAID[{layout.Verdict}]",
@@ -469,10 +577,8 @@ namespace BreakwaterTool.Breakwaters {
     }
 
     /// <summary>
-    /// Judges the outline drawn or picked against the ground as it is this frame: the toe the
-    /// overlay shows, and the ground under a picked breakwater.
-    /// Other tools reshape the terrain and the water rises and falls under an outline that stays
-    /// put, so neither verdict is kept from one frame to the next.
+    /// Judges the toe of the outline drawn or picked against the ground as it is this frame, as the
+    /// pointer moves its points.
     /// </summary>
     private void JudgeGround() {
       var points = this.gestures.Points;
@@ -484,15 +590,19 @@ namespace BreakwaterTool.Breakwaters {
         return;
       }
 
-      this.toe = BreakwaterLayout.ToeEdges(points, new GameLayoutHost(this.heights));
+      this.toe = this.gestures.Toe is {} byHand ? [.. byHand] : this.ChooseToe(points);
 
       // An outline still drawn is no breakwater yet: its ground is judged once it is closed.
       if (this.gestures.Mode is not GestureMode.Editing) {
         this.Ground = GroundVerdict.Shaped;
-
-        return;
       }
+    }
 
+    /// <summary>
+    /// Judges whether the ground under the picked breakwater holds a mound out of the water.
+    /// </summary>
+    private void JudgePickedGround() {
+      var points = this.gestures.Points;
       var water = this.waterSystem.GetSurfaceData(out var deps);
 
       deps.Complete();
@@ -510,18 +620,30 @@ namespace BreakwaterTool.Breakwaters {
     /// </summary>
     private Pointer<Entity> ReadPointer() {
       if (!this.GetRaycastResult(out Entity _, out var hit)) {
+        this.outlines.Clear();
+
         return new Pointer<Entity>(null, 0f, null, this.view.Position);
       }
 
       var at = hit.m_HitPosition.xz;
+      var reach = this.view.ReachAt(hit.m_HitPosition);
+
+      this.ReachOutlines(hit.m_HitPosition, reach);
 
       return new Pointer<Entity>(
         at,
-        this.view.ReachAt(hit.m_HitPosition),
+        reach,
         this.BreakwaterAt(at),
-        this.view.Position
+        this.view.Position,
+        ToeMarkers.Aimed(this.toeMarkers, this.view.Position, hit.m_HitPosition)
       );
     }
+
+    /// <summary>
+    /// The toe edges the layout chooses for an outline on the ground as it is this frame.
+    /// </summary>
+    private bool[] ChooseToe(IReadOnlyList<float2> outline) =>
+      BreakwaterLayout.ToeEdges(outline, new GameLayoutHost(this.heights), this.Parameters);
 
     private float HeightAt(float2 xz) =>
       TerrainUtils.SampleHeight(ref this.heights, new float3(xz.x, 0f, xz.y));
@@ -544,11 +666,89 @@ namespace BreakwaterTool.Breakwaters {
       }
 
       this.outlinesRevision = this.breakwaters.Revision;
-      this.outlines.Clear();
+      this.city.Clear();
+      this.toes.Clear();
 
       foreach (var record in this.breakwaters.List()) {
-        if (this.breakwaters.Read(record) is {} state) {
-          this.outlines.Add((record, state.Polygon));
+        if (this.breakwaters.Read(record) is not {} state) {
+          continue;
+        }
+
+        this.city.Add((record, state.Polygon, this.BoxOf(state.Polygon)));
+
+        if (state.Toe is {} byHand) {
+          this.toes[record] = byHand;
+        }
+      }
+    }
+
+    /// <summary>
+    /// The box an outline lies in, on the ground as it now is, with room above and below for the
+    /// ground to move before the outline is read again.
+    /// </summary>
+    private Bounds BoxOf(float2[] outline) {
+      var heights = outline.Select(this.HeightAt).ToArray();
+      var low = outline.Aggregate(math.min);
+      var high = outline.Aggregate(math.max);
+      var box = new Bounds();
+
+      box.SetMinMax(
+        new Vector3(low.x, heights.Min() - BreakwaterToolSystem.BoxMargin, low.y),
+        new Vector3(high.x, heights.Max() + BreakwaterToolSystem.BoxMargin, high.y)
+      );
+
+      return box;
+    }
+
+    /// <summary>
+    /// Keeps the breakwaters whose box the camera sees: one out of view is neither under the
+    /// pointer nor drawn.
+    /// </summary>
+    // [PERF] The overlay draws the outlines in view, in place of every outline of the city at each
+    // frame.
+    private void CullOutlines() {
+      this.inView.Clear();
+
+      var camera = Camera.main;
+
+      // Unity's == also sees a destroyed camera, which `is null` misses.
+      if (camera == null) {
+        return;
+      }
+
+      GeometryUtility.CalculateFrustumPlanes(camera, this.frustum);
+
+      foreach (var outline in this.city) {
+        if (GeometryUtility.TestPlanesAABB(this.frustum, outline.Box)) {
+          this.inView.Add(outline);
+        }
+      }
+    }
+
+    /// <summary>
+    /// Keeps, of the breakwaters in view, those whose box the pointer's ray passes within its reach
+    /// of, before it meets the ground: the only ones a node or an edge of which it can aim at.
+    /// </summary>
+    // [PERF] The gestures weigh the edges of the outlines at the pointer, in place of every edge
+    // in view at each frame.
+    private void ReachOutlines(float3 ground, float reach) {
+      this.outlines.Clear();
+
+      var toGround = math.distance(this.view.Position, ground);
+
+      if (toGround <= 0f) {
+        return;
+      }
+
+      var ray = new Ray(this.view.Position, (ground - this.view.Position) / toGround);
+
+      foreach (var (record, outline, box) in this.inView) {
+        var reached = box;
+
+        reached.Expand(2f * reach);
+
+        if (reached.IntersectRay(ray, out var distance) && distance <= toGround + reach) {
+          this.outlines.Add((record, outline));
         }
       }
     }

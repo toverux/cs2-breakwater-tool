@@ -1,0 +1,29 @@
+@use "../common";
+@use "../vanilla-vars" as vanilla;
+
+.stonesRow {
+  &-probes {
+    @include common.stable-class;
+
+    display: none;
+  }
+
+  &-laid,
+  &-add {
+    @include common.stable-class;
+  }
+
+  &-leftOut {
+    @include common.stable-class;
+
+    opacity: 0.35;
+  }
+
+  &-hint {
+    @include common.stable-class;
+
+    padding: 6rem 10rem;
+    color: vanilla.$text-color;
+    font-size: vanilla.$font-size-s;
+  }
+}

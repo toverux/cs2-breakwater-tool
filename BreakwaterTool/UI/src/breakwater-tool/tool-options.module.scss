@@ -31,9 +31,28 @@
     background-color: vanilla.$highlight-green;
   }
 
+  &-outdated {
+    @include common.stable-class;
+
+    padding: 6rem 10rem;
+    color: vanilla.$warning-color;
+    font-size: vanilla.$font-size-s;
+  }
+
+  &-style {
+    @include common.stable-class;
+
+    width: 190rem;
+  }
+
+  &-styleItem,
   &-fit,
+  &-reshuffle,
+  &-clearVegetation,
   &-revert,
-  &-delete {
+  &-delete,
+  &-laid,
+  &-dumped {
     @include common.stable-class;
   }
 }

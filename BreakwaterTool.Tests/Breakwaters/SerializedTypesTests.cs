@@ -31,11 +31,22 @@ public sealed class SerializedTypesTests {
       Mixing = 0.4f,
       Layers = 2,
       UnderLayerDepth = 0.5f,
-      Tumble = 0.1f
+      Tumble = 0.1f,
+      ToeShare = 0.3f,
+      LevelHeight = 3f
     };
 
+    var state = new BreakwaterState(
+      [float2.zero],
+      [],
+      parameters,
+      StoneProtectionKind.Anarchy,
+      [true],
+      0xFEDC_BA98_7654_3210UL
+    );
+
     var (written, read) = SerializedTypesTests.RoundTrip(
-      new BreakwaterRecord(parameters, StoneProtectionKind.Anarchy),
+      new BreakwaterRecord(state),
       typeof(int),
       typeof(float),
       typeof(float),
@@ -51,23 +62,31 @@ public sealed class SerializedTypesTests {
       typeof(int),
       typeof(float),
       typeof(float),
-      typeof(byte)
+      typeof(float),
+      typeof(float),
+      typeof(byte),
+      typeof(bool),
+      typeof(ulong)
     );
 
     Assert.Equal(parameters, read.Parameters);
     Assert.Equal(StoneProtectionKind.Anarchy, read.protection);
-    Assert.Equal((byte) 1, written[^1]);
+    Assert.True(read.isToeByHand);
+    Assert.Equal(0xFEDC_BA98_7654_3210UL, read.groundHash);
+    Assert.Equal((byte) 1, written[^3]);
   }
 
   [Fact]
   public void BreakwaterVertex_WrittenThenRead_IsEqual() {
     var (_, read) = SerializedTypesTests.RoundTrip(
-      new BreakwaterVertex(new float2(1901.2f, -2068.5f)),
+      new BreakwaterVertex(new float2(1901.2f, -2068.5f), true),
       typeof(int),
-      typeof(float2)
+      typeof(float2),
+      typeof(bool)
     );
 
     Assert.Equal(new float2(1901.2f, -2068.5f), read.position);
+    Assert.True(read.isToe);
   }
 
   [Fact]

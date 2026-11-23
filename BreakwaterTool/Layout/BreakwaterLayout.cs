@@ -9,8 +9,8 @@ namespace BreakwaterTool.Layout;
 /// <summary>
 /// Lays the stones of a breakwater over a polygon, on the terrain: the terrain is the mound, the
 /// stones dress it, and the polygon only says where.
-/// The toe is the run of the polygon's edges in the bottom 40 % of its points' heights, or every
-/// edge when they are within 2 m of level.
+/// The toe is the edges it is given, or else the run of the polygon's edges in the bottom share of
+/// its points' heights, or every edge when they are level.
 /// Each row is a contour of the distance to the whole toe, clipped to the polygon: the first is the
 /// toe, the next one row spacing further up the slope, until the polygon holds none (a revetment's
 /// crest) or the rows of two sides meet (a jetty's spine). Its stones are placed fresh along it, a
@@ -32,23 +32,18 @@ internal static class BreakwaterLayout {
   /// </summary>
   private const float Farthest = 32_768f;
 
-  /// <summary>
-  /// A boundary whose points are within this height of each other is level: all of it is toe.
-  /// </summary>
-  private const float LevelHeight = 2f;
-
-  /// <summary>
-  /// The share of the boundary's height range, from its lowest point, that holds the toe.
-  /// </summary>
-  private const float ToeShare = 0.4f;
-
   /// <param name="polygon">The breakwater's outline, in game metres, not closed.</param>
   /// <param name="shapes">The stones to lay; <see cref="LaidStone.Shape"/> indexes them.</param>
+  /// <param name="toeEdges">
+  /// Per edge, from point i to i + 1, whether it is toe; null, or a list of another length or
+  /// without a toe edge, leaves the choice to <see cref="ToeEdges"/>.
+  /// </param>
   internal static LayoutResult Lay(
     IReadOnlyList<float2> polygon,
     IReadOnlyList<StoneShape> shapes,
     BreakwaterParameters parameters,
-    ILayoutHost host
+    ILayoutHost host,
+    IReadOnlyList<bool>? toeEdges = null
   ) {
     var area = BreakwaterLayout.Area(polygon);
 
@@ -66,26 +61,7 @@ internal static class BreakwaterLayout {
       };
     }
 
-    // Footprints along and across the row once laid, and the shapes within the size tolerance.
-    var sizes = new float2[shapes.Count];
-    var centres = new float2[shapes.Count];
-
-    for (var i = 0; i < shapes.Count; i++) {
-      sizes[i] = shapes[i].Footprint(parameters.Embed, out centres[i]);
-
-      if (parameters.IsLongAxisAcross) {
-        sizes[i] = sizes[i].yx;
-      }
-    }
-
-    // Stored as floats, so the median's own ratio is exactly 1 in the game's double arithmetic too.
-    var areas = sizes.Select(static size => size.x * size.y).ToArray();
-    var medianArea = areas.OrderBy(static a => a).ElementAt(areas.Length / 2);
-
-    var kept = Enumerable.Range(0, shapes.Count)
-      .Where(i => Math.Abs((areas[i] / medianArea) - 1f) <= parameters.SizeTolerance)
-      .ToArray();
-
+    var (kept, sizes, centres) = BreakwaterLayout.Kept(shapes, parameters);
     var leftOut = Enumerable.Range(0, shapes.Count).Except(kept).ToArray();
     var meanSize = kept.Aggregate(float2.zero, (sum, i) => sum + sizes[i]) / kept.Length;
     var stoneSpacing = meanSize.x * parameters.Packing;
@@ -100,7 +76,9 @@ internal static class BreakwaterLayout {
       };
     }
 
-    var toe = BreakwaterLayout.ToeEdges(polygon, host);
+    var toe = toeEdges is not null && toeEdges.Count == polygon.Count && toeEdges.Contains(true)
+      ? toeEdges.ToArray()
+      : BreakwaterLayout.ToeEdges(polygon, host, parameters);
 
     var estimate = (double) area / (stoneSpacing * rowSpacing) * parameters.Layers;
 
@@ -181,21 +159,59 @@ internal static class BreakwaterLayout {
   }
 
   /// <summary>
+  /// The shapes the size tolerance keeps, as indices: those whose footprint area is within it of
+  /// the median one.
+  /// </summary>
+  /// <returns>
+  /// The indices kept, with each shape's footprint along and across the row once laid, and its
+  /// footprint centre.
+  /// </returns>
+  internal static (int[] Kept, float2[] Sizes, float2[] Centres) Kept(
+    IReadOnlyList<StoneShape> shapes,
+    BreakwaterParameters parameters
+  ) {
+    var sizes = new float2[shapes.Count];
+    var centres = new float2[shapes.Count];
+
+    for (var i = 0; i < shapes.Count; i++) {
+      sizes[i] = shapes[i].Footprint(parameters.Embed, out centres[i]);
+
+      if (parameters.IsLongAxisAcross) {
+        sizes[i] = sizes[i].yx;
+      }
+    }
+
+    // Stored as floats, so the median's own ratio is exactly 1 in the game's double arithmetic too.
+    var areas = sizes.Select(static size => size.x * size.y).ToArray();
+    var medianArea = areas.OrderBy(static a => a).ElementAt(areas.Length / 2);
+
+    var kept = Enumerable.Range(0, shapes.Count)
+      .Where(i => Math.Abs((areas[i] / medianArea) - 1f) <= parameters.SizeTolerance)
+      .ToArray();
+
+    return (kept, sizes, centres);
+  }
+
+  /// <summary>
   /// Per edge, from point i to i + 1, whether it is in the bottom share of the boundary's heights,
   /// both its ends; every edge when the boundary is level.
   /// Where no edge is, the low part is a corner, on a slope falling across the outline: the toe is
   /// then the two edges that meet there.
   /// </summary>
-  internal static bool[] ToeEdges(IReadOnlyList<float2> polygon, ILayoutHost host) {
+  internal static bool[] ToeEdges(
+    IReadOnlyList<float2> polygon,
+    ILayoutHost host,
+    BreakwaterParameters parameters
+  ) {
     var heights = polygon.Select(host.HeightAt).ToArray();
     var low = heights.Min();
     var high = heights.Max();
     var toe = new bool[polygon.Count];
 
     for (var i = 0; i < polygon.Count; i++) {
-      toe[i] = high - low < BreakwaterLayout.LevelHeight ||
+      toe[i] = high - low < parameters.LevelHeight ||
         math.max(heights[i], heights[(i + 1) % polygon.Count]) <=
-        low + (BreakwaterLayout.ToeShare * (high - low));
+        low + (parameters.ToeShare * (high - low));
     }
 
     if (!toe.Contains(true)) {
@@ -272,6 +288,12 @@ internal static class BreakwaterLayout {
     /// </summary>
     private const float LeastGap = 2f / 3f;
 
+    /// <summary>
+    /// How near two stones of one layer may lie, as a share of the smaller of the stone and row
+    /// spacings, once each is off its place by the irregularity.
+    /// </summary>
+    private const float LeastApart = 0.5f;
+
     // Every random draw of the layout, in a fixed order, hence a single mutable stream.
     private Random random = new(math.max(1u, (parameters.Seed * 7919u) + 1u));
 
@@ -319,10 +341,20 @@ internal static class BreakwaterLayout {
           : toe;
 
         var row = new List<RowPlace>();
+        var corners = new List<RowPlace>();
 
-        foreach (var place in this.Sampler.Place(lines, below, shift)) {
+        foreach (var place in this.Sampler.Place(lines, below, shift, corners)) {
           if (taken.TryTake(place, gap)) {
             row.Add(place);
+          }
+        }
+
+        // At an edge off the toe, the roomiest spot is on the edge itself, and a stone there would
+        // stand half outside: the rows end there anyway, as at the crest.
+        foreach (var corner in corners) {
+          if (field.OffToeDistance(corner.Position) >=
+            math.max(this.StoneSpacing, this.RowSpacing)) {
+            taken.Watch(corner);
           }
         }
 
@@ -366,6 +398,7 @@ internal static class BreakwaterLayout {
       PlaceGrid taken
     ) {
       var places = new List<RowPlace>();
+      var least = this.ClosingGap(rise);
 
       // Past the gap, so that the next row finds room on the spine where this one leaves it open.
       var reach = 1.7f * rise;
@@ -394,12 +427,29 @@ internal static class BreakwaterLayout {
         };
 
         // Where the outline bends in, it can pass between the row and the spine.
-        if (field.Contains(closing.Position) && taken.TryTake(closing, this.Gap(rise))) {
+        if (field.Contains(closing.Position) && taken.TryTake(closing, least)) {
           places.Add(closing);
         }
       }
 
       return places;
+    }
+
+    /// <summary>
+    /// The least distance between a closing place and the others: the rows' gap where they rise
+    /// less, as they come closer near the spine; but as far as keeps two stones off their places no
+    /// nearer than <see cref="LeastApart"/>, and at most the rows' own gap.
+    /// </summary>
+    // Off their places by the default irregularity at most: past it, the player asked for disorder,
+    // and the spine would show the ground where a closing place is refused.
+    private float ClosingGap(float rise) {
+      var offPlace = math.min(parameters.Irregularity, BreakwaterParameters.Default.Irregularity) *
+        this.StoneSpacing;
+
+      var apart = (Builder.LeastApart * math.min(this.StoneSpacing, this.RowSpacing)) +
+        (2f * math.SQRT2 * offPlace);
+
+      return math.max(this.Gap(rise), math.min(apart, this.Gap(this.RowSpacing)));
     }
 
     /// <summary>

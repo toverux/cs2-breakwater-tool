@@ -33,6 +33,14 @@ public sealed class Settings : ModSetting, IJsonWritable {
   [SettingsUIKeyboardBinding(BindingKeyboard.B, nameof(Settings.KeyBindingToggleTool), ctrl: true)]
   public ProxyBinding KeyBindingToggleTool { get; set; }
 
+  /// <summary>
+  /// The look the tool set last, its layout parameters and its stones, which the next session's
+  /// first breakwater starts from; the tool writes and reads it, and the options screen shows
+  /// nothing of it.
+  /// </summary>
+  [SettingsUIHidden]
+  public string LastLook { get; set; } = "";
+
   [SettingsUIButton]
   [SettingsUIConfirmation]
   [SettingsUISection(Settings.GroupAdvanced)]
@@ -54,7 +62,8 @@ public sealed class Settings : ModSetting, IJsonWritable {
   /// <see cref="ResetSettings"/>.
   /// </summary>
   public override void SetDefaults() {
-    // Every setting is a key binding so far, which ResetKeyBindings restores.
+    // The key binding is restored by ResetKeyBindings.
+    this.LastLook = "";
   }
 
   /// <summary>

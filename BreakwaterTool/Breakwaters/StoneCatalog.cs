@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BreakwaterTool.Layout;
@@ -5,6 +6,7 @@ using Game.Prefabs;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Hash128 = Colossal.Hash128;
 
 namespace BreakwaterTool.Breakwaters;
 
@@ -14,26 +16,35 @@ namespace BreakwaterTool.Breakwaters;
 /// prefab in a choice lays the stones it lists, never itself.
 /// </summary>
 internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager entityManager) {
-  /// <summary>
-  /// The vanilla random boulder, a new breakwater's stones until the player chooses others.
-  /// </summary>
-  private const string DefaultStones = "BoulderRandom01";
-
   // [PERF] Read once per prefab, in place of at each lay: a mesh does not change for the session.
   private readonly Dictionary<Entity, StoneShape> shapes = [];
 
   /// <summary>
-  /// The stones a new breakwater lays until the player chooses others, or none when the game lacks
-  /// them.
+  /// The prefab entities of a list of prefab ids, each as <see cref="Id"/> writes it or a static
+  /// object's bare name, those the game lacks left out.
   /// </summary>
-  internal Entity[] DefaultChoice() =>
-    prefabSystem.TryGetPrefab(
-      new PrefabID(nameof(StaticObjectPrefab), StoneCatalog.DefaultStones),
-      out var prefab
-    ) &&
-    prefabSystem.TryGetEntity(prefab, out var entity)
-      ? [entity]
-      : [];
+  internal Entity[] Resolve(IEnumerable<string> ids) => [
+    .. ids
+      .Select(static id => StoneCatalog.Parse(id.Trim()))
+      .Select(id => prefabSystem.TryGetPrefab(id, out var prefab) &&
+        prefabSystem.TryGetEntity(prefab, out var entity)
+          ? entity
+          : Entity.Null
+      )
+      .Where(static entity => entity != Entity.Null)
+      .Distinct()
+  ];
+
+  /// <summary>
+  /// A prefab's id, <c>Type/Name</c> or <c>Type/Name/Hash</c> escaped as in a URL, which
+  /// <see cref="Resolve"/> finds it by; empty for an entity that is no prefab.
+  /// </summary>
+  // The game finds a prefab by its whole id, an asset's hash included (decompile: PrefabID.Equals,
+  // PrefabSystem.TryGetPrefab).
+  internal string Id(Entity prefab) =>
+    prefabSystem.TryGetPrefab<PrefabBase>(prefab, out var found)
+      ? found.GetPrefabID().ToUrlSegment()
+      : "";
 
   /// <summary>
   /// The stones a choice lays, each once, in the choice's order.
@@ -101,4 +112,18 @@ internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager enti
   /// </summary>
   internal string Name(Entity prefab) =>
     prefabSystem.TryGetPrefab<PrefabBase>(prefab, out var named) ? named.name : prefab.ToString();
+
+  /// <summary>
+  /// The prefab id an id names, as <see cref="Id"/> writes it or a static object's bare name, as a
+  /// style lists its stones.
+  /// </summary>
+  private static PrefabID Parse(string id) {
+    var parts = id.Split('/').Select(Uri.UnescapeDataString).ToArray();
+
+    return parts.Length switch {
+      1 => new PrefabID(nameof(StaticObjectPrefab), parts[0]),
+      2 => new PrefabID(parts[0], parts[1]),
+      _ => new PrefabID(parts[0], parts[1], Hash128.Parse(parts[2]))
+    };
+  }
 }

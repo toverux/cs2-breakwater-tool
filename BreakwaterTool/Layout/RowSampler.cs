@@ -56,10 +56,14 @@ internal sealed class RowSampler(float spacing, float rowSpacing) {
   /// <param name="phase">
   /// Where the first stone of an open line stands when no row below faces it, in stone spacings.
   /// </param>
+  /// <param name="corners">
+  /// Where the lines turn, if asked: a place at each corner, along the side it turns from.
+  /// </param>
   internal List<RowPlace> Place(
     IEnumerable<RowLine> lines,
     IReadOnlyList<RowPlace> below,
-    float phase
+    float phase,
+    List<RowPlace>? corners = null
   ) {
     // [PERF] Asked per stone for the two it sits between, in place of every place of the row below
     // projected on the line.
@@ -82,6 +86,8 @@ internal sealed class RowSampler(float spacing, float rowSpacing) {
       else {
         this.Along(walk, index, phase, places);
       }
+
+      corners?.AddRange(walk.Corners(spacing));
     }
 
     return places;
@@ -230,6 +236,45 @@ internal sealed class RowSampler(float spacing, float rowSpacing) {
 
       // Past its ends, a short line has no direction to read either way.
       return new RowPlace(point, math.normalizesafe(along, side));
+    }
+
+    /// <summary>
+    /// A place at each corner of the line, the sharpest of the points that turn as a stone on a
+    /// corner does, along the side it turns from, read a stone back: the line cuts a corner across
+    /// a cell or two, which a read nearer would take.
+    /// </summary>
+    internal IEnumerable<RowPlace> Corners(float spacing) {
+      // A closed line comes back to its first point, its last one.
+      var last = this.points.Length - 2;
+      var sharpest = (Turn: RowSampler.Corner, At: -1, Along: float2.zero);
+
+      for (var k = this.IsClosed ? 0 : 1; k <= last; k++) {
+        // Near an end of an open line, there is no direction to read on one side.
+        if (!this.IsClosed &&
+          (this.lengths[k] < 2f * this.Bend || this.lengths[k] > this.Length - (2f * this.Bend))) {
+          continue;
+        }
+
+        var behind = this.Direction(this.lengths[k] - (2f * this.Bend));
+        var turn = math.dot(this.Direction(this.lengths[k] + this.Bend), behind);
+
+        if (turn < sharpest.Turn) {
+          sharpest = (turn, k, this.Direction(this.lengths[k] - spacing));
+
+          continue;
+        }
+
+        // A corner ends where its points stop turning.
+        if (sharpest.At >= 0 && turn >= RowSampler.Corner) {
+          yield return new RowPlace(this.points[sharpest.At], sharpest.Along);
+
+          sharpest = (RowSampler.Corner, -1, float2.zero);
+        }
+      }
+
+      if (sharpest.At >= 0) {
+        yield return new RowPlace(this.points[sharpest.At], sharpest.Along);
+      }
     }
 
     /// <summary>

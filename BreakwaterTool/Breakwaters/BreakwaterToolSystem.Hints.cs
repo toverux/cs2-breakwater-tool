@@ -1,5 +1,7 @@
+using System.Linq;
 using BreakwaterTool.Gestures;
 using Game.Input;
+using Unity.Entities;
 using UnityEngine;
 
 namespace BreakwaterTool.Breakwaters {
@@ -8,6 +10,13 @@ namespace BreakwaterTool.Breakwaters {
   /// interpreter says what each would do at the pointer.
   /// </summary>
   internal sealed partial class BreakwaterToolSystem {
+    /// <summary>
+    /// The mod's own labels, which the source locale names under <c>Common.ACTION[label]</c>.
+    /// </summary>
+    internal const string SetToeLabel = "BreakwaterTool.SetToe";
+
+    internal const string RemoveToeLabel = "BreakwaterTool.RemoveToe";
+
     // The game's labels, read in OnCreate: hence mutable; null where the game has none.
     private IProxyAction? addNode;
 
@@ -31,6 +40,11 @@ namespace BreakwaterTool.Breakwaters {
 
     private IProxyAction? deselectArea;
 
+    // The mod's own labels, on the action of one of the game's.
+    private IProxyAction? setToe;
+
+    private IProxyAction? removeToe;
+
     private void OnCreateHints() {
       // The asset the game's input manager loads its tool labels from, which it keeps internal.
       var labels = Resources.Load<UIInputActionCollection>("Input/Tool Input Actions");
@@ -46,6 +60,8 @@ namespace BreakwaterTool.Breakwaters {
       this.discardInsert = this.Label(labels, "Discard Insert Area Node");
       this.selectArea = this.Label(labels, "Select Area");
       this.deselectArea = this.Label(labels, "Deselect Area");
+      this.setToe = this.Label(labels, "Insert Area Node", BreakwaterToolSystem.SetToeLabel);
+      this.removeToe = this.Label(labels, "Insert Area Node", BreakwaterToolSystem.RemoveToeLabel);
     }
 
     /// <summary>
@@ -62,11 +78,40 @@ namespace BreakwaterTool.Breakwaters {
     }
 
     /// <summary>
+    /// A label of the mod's, on the action of one of the game's labels and shown as it is: the
+    /// hints bar reads its text from the locale key <c>Common.ACTION[text]</c>.
+    /// </summary>
+    private IProxyAction? Label(UIInputActionCollection? labels, string name, string text) {
+      if (labels?.m_InputActions.FirstOrDefault(action => action.aliasName == name
+        ) is not {} like) {
+        this.OnLabelRead(text, null);
+
+        return null;
+      }
+
+      var state = like.GetState(
+        $"{text} ({nameof(BreakwaterToolSystem)})",
+        (source, action, _, transform) => new DisplayNameOverride(
+          source,
+          action,
+          text,
+          like.displayPriority,
+          like.m_DisplayMask,
+          transform
+        )
+      );
+
+      this.OnLabelRead(text, state);
+
+      return state;
+    }
+
+    /// <summary>
     /// Each label read, which the Debug build keeps for the scenarios to check.
     /// </summary>
     partial void OnLabelRead(string name, IProxyAction? state);
 
-    private void ShowHints() {
+    private void ShowHints(GestureTarget<Entity> target) {
       var isHeld = this.gestures.Held >= 0;
 
       this.applyActionOverride = this.Hint switch {
@@ -76,6 +121,12 @@ namespace BreakwaterTool.Breakwaters {
         GestureHint.Move or GestureHint.MoveOrRemove or GestureHint.Release => this.moveNode,
         GestureHint.Insert => this.insertNode,
         GestureHint.StartAnother => this.createArea,
+        GestureHint.ToggleToe => target.Index >= this.toe.Length || !this.toe[target.Index]
+          ? this.setToe
+          // The press refuses the last toe edge.
+          : this.toe.Count(static isToe => isToe) > 1
+            ? this.removeToe
+            : null,
         _ => null
       };
 

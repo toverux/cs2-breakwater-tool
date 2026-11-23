@@ -95,6 +95,18 @@ public sealed record BreakwaterParameters {
   public float Tumble { get; init; }
 
   /// <summary>
+  /// How high up the outline's heights the toe reaches, from its lowest point, as a share of their
+  /// range, up to 1: an edge with both ends under it is toe, unless the toe edges are given.
+  /// </summary>
+  public float ToeShare { get; init; } = 0.4f;
+
+  /// <summary>
+  /// The height range under which the outline counts as level, in metres, up to 1000: every edge
+  /// is then toe and the stones ring the outline, unless the toe edges are given.
+  /// </summary>
+  public float LevelHeight { get; init; } = 2f;
+
+  /// <summary>
   /// The fraction of a footprint between two stones' centres along a row, from
   /// <see cref="Density"/> and <see cref="RowRatio"/>.
   /// </summary>
@@ -132,7 +144,9 @@ public sealed record BreakwaterParameters {
       (nameof(this.SizeTolerance), this.SizeTolerance, 0f, 100f),
       (nameof(this.Mixing), this.Mixing, 0f, 1f),
       (nameof(this.UnderLayerDepth), this.UnderLayerDepth, 0f, 1f),
-      (nameof(this.Tumble), this.Tumble, 0f, 1f)
+      (nameof(this.Tumble), this.Tumble, 0f, 1f),
+      (nameof(this.ToeShare), this.ToeShare, 0f, 1f),
+      (nameof(this.LevelHeight), this.LevelHeight, 0f, 1000f)
     ];
 
     return floats

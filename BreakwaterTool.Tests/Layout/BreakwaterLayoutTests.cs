@@ -357,6 +357,48 @@ public sealed class BreakwaterLayoutTests {
     );
   }
 
+  // Rows 0.8, 1.7 and 2.3 stone spacings apart.
+  [Theory]
+  [InlineData(1f)]
+  [InlineData(2f)]
+  [InlineData(2.8f)]
+  public void Lay_ToeEndingMidEdge_BreaksTheBondOnlyWhereItsFansGain(float rowRatio) {
+    // Boulders up a bank 144 m along and 72 m deep, from a toe 9.6 m long in the middle of its
+    // bottom edge: past each end of the toe, its rows turn a quarter round the end, down to the
+    // bottom edge.
+    var stones = FixtureStones.Boulders;
+    var (from, to) = (new float2(67.2f, 0f), new float2(76.8f, 0f));
+    float2[] outline = [new(0f, 0f), from, to, new(144f, 0f), new(144f, 72f), new(0f, 72f)];
+
+    var parameters = BreakwaterParameters.Default with {
+      RowRatio = BreakwaterParameters.Default.RowRatio * rowRatio
+    };
+
+    var result = BreakwaterLayout.Lay(
+      outline,
+      stones,
+      parameters,
+      new FixtureHost(static xz => 0.4f * xz.y),
+      [false, true, false, false, false, false]
+    );
+
+    // Clear of the outline's sides and crest, the two fans hold the rows out to 60 m from the toe's
+    // ends. Over a half turn in all, each row is longer than the one below by pi times their
+    // spacing, so the rows out to that reach gain pi times its length in stone spacings, and a
+    // stone gained sits on one below it.
+    const float reach = 60f;
+    var gains = math.PI * reach / result.StoneSpacing;
+
+    var broken = BrickBond.Judge(outline, result, stones, parameters)
+      .Count(stone =>
+        (stone.Centre.x < from.x || stone.Centre.x > to.x) &&
+        math.min(math.distance(stone.Centre, from), math.distance(stone.Centre, to)) < reach &&
+        stone.Off > BrickBond.Broken
+      );
+
+    Assert.InRange(broken, 0, 1.2f * gains);
+  }
+
   [Fact]
   public void Lay_HalfEmbeddedLevelTops_SinksEachStoneHalfItsHeight() {
     var result = BreakwaterLayoutTests.LayRevetment(BreakwaterParameters.Default);

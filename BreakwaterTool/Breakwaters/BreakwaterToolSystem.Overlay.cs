@@ -1,10 +1,13 @@
 using System.Collections.Generic;
+using System.Linq;
 using BreakwaterTool.Gestures;
 using Colossal.Mathematics;
 using Game.Net;
 using Game.Prefabs;
 using Game.Rendering;
+using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -103,35 +106,23 @@ namespace BreakwaterTool.Breakwaters {
       var held = this.gestures.Held;
       var isHolding = held >= 0;
 
-      // The other breakwaters, the one under the pointer brighter, with the node or the edge point
-      // a press would take.
-      foreach (var (record, polygon) in this.outlines) {
-        if (record == this.gestures.Picked) {
-          continue;
-        }
+      // The other breakwaters in view, the aimed one and the one under the pointer brighter.
+      this.DrawOthers(
+        buffer,
+        isHolding ? null : target.Breakwater,
+        isHolding ? null : this.pointer.Under
+      );
 
-        var isTargeted = target.Breakwater == record && !isHolding;
-        var isHovered = isTargeted || (record == this.pointer.Under && !isHolding);
-        var color = isHovered
-          ? BreakwaterToolSystem.HoveredOtherColor
-          : BreakwaterToolSystem.OtherColor;
-
-        // [PERF] Each node lifted once, the end of an edge being the start of the next, in place of
-        // both ends of each edge.
-        float3? end = null;
-
-        for (var i = 0; i < polygon.Length; i++) {
-          var start = end ?? Lift(polygon[i]);
-
-          end = Lift(polygon[(i + 1) % polygon.Length]);
-          Edge(color, start, end.Value);
-        }
-
-        if (isTargeted && target is { Kind: TargetKind.Vertex }) {
+      // The node or the edge point a press would take on one of them.
+      if (!isHolding &&
+        target.Breakwater is {} targeted &&
+        targeted != this.gestures.Picked &&
+        this.inView.Find(outline => outline.Record == targeted).Outline is {} polygon) {
+        if (target.Kind is TargetKind.Vertex) {
           Node(highlight, Lift(polygon[target.Index]), BreakwaterToolSystem.ActiveNodeSize);
         }
 
-        if (isTargeted && target is { Kind: TargetKind.Edge, At: {} onOther }) {
+        if (target is { Kind: TargetKind.Edge, At: {} onOther }) {
           EdgePoint(polygon, onOther);
         }
       }
@@ -212,6 +203,8 @@ namespace BreakwaterTool.Breakwaters {
         }
 
         if (held < 0) {
+          this.DrawToeMarkers(buffer, target, (toeColor, edgeColor, highlight));
+
           return;
         }
 
@@ -285,6 +278,54 @@ namespace BreakwaterTool.Breakwaters {
           scale * this.view.ScaleAt(at)
         );
       }
+    }
+
+    /// <summary>
+    /// Draws the outline of every breakwater in view but the picked one.
+    /// </summary>
+    /// <param name="aimed">The breakwater a press would act on, drawn brighter.</param>
+    /// <param name="hovered">The breakwater under the pointer, drawn brighter.</param>
+    private void DrawOthers(OverlayRenderSystem.Buffer buffer, Entity? aimed, Entity? hovered) {
+      var count = this.inView.Sum(static outline => outline.Outline.Length);
+
+      if (count == 0) {
+        return;
+      }
+
+      var points = new NativeArray<float2>(count, Allocator.TempJob);
+      var ends = new NativeArray<int>(this.inView.Count, Allocator.TempJob);
+      var colors = new NativeArray<Color>(this.inView.Count, Allocator.TempJob);
+      var next = 0;
+
+      for (var i = 0; i < this.inView.Count; i++) {
+        var (record, outline, _) = this.inView[i];
+
+        // The picked breakwater's outline is drawn apart, with its nodes and its toe.
+        if (record != this.gestures.Picked) {
+          NativeArray<float2>.Copy(outline, 0, points, next, outline.Length);
+          next += outline.Length;
+        }
+
+        ends[i] = next;
+        colors[i] = record == aimed || record == hovered
+          ? BreakwaterToolSystem.HoveredOtherColor
+          : BreakwaterToolSystem.OtherColor;
+      }
+
+      new OutlineOverlayJob {
+        points = points,
+        ends = ends,
+        colors = colors,
+        heights = this.heights,
+        buffer = buffer,
+        eye = this.view.Position,
+        width = BreakwaterToolSystem.EdgeWidth * BreakwaterToolSystem.SnapDistance,
+        widthPerMetre = BreakwaterToolSystem.EdgePixels * this.view.PixelSpan
+      }.Run();
+
+      points.Dispose();
+      ends.Dispose();
+      colors.Dispose();
     }
 
     /// <summary>

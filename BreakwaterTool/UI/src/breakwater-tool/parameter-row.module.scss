@@ -1,0 +1,25 @@
+@use "../common";
+@use "../vanilla-vars" as vanilla;
+
+.parameterRow {
+  &-value {
+    @include common.stable-class;
+
+    // A width of its own, so that every row's slider is the same size whatever its value reads.
+    flex: 0 0 auto;
+    width: 48rem;
+    color: vanilla.$text-color;
+    font-size: vanilla.$font-size-s;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  &-slider {
+    @include common.stable-class;
+
+    // A width of its own too: the vanilla slider takes half of what the row's title leaves, which
+    // differs from row to row.
+    flex: 0 0 auto;
+    width: 140rem;
+  }
+}

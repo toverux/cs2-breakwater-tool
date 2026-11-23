@@ -33,6 +33,11 @@ namespace BreakwaterTool.Breakwaters {
     // when they cannot be laid.
     private readonly Dictionary<Entity, PendingLay> pending = [];
 
+    // The plants the next update clears, and those it lays again.
+    private readonly HashSet<Entity> plantsToClear = [];
+
+    private readonly List<PlantState> plantsToLay = [];
+
     // Created in OnCreate, which the game runs before any other member: hence mutable, and null!
     // until then.
     private PrefabSystem prefabSystem = null!;
@@ -47,6 +52,8 @@ namespace BreakwaterTool.Breakwaters {
 
     private EntityQuery stonesQuery;
 
+    private EntityQuery plantsQuery;
+
     /// <summary>
     /// The diagnostics of the layout the last operation ran, laid or not, or null when it refused
     /// before laying out.
@@ -57,6 +64,11 @@ namespace BreakwaterTool.Breakwaters {
     /// The chosen stones the last layout left out because the protection cannot cover them.
     /// </summary>
     internal IReadOnlyList<Entity> LastUnprotectable { get; private set; } = [];
+
+    /// <summary>
+    /// Why the last operation refused before laying out, where the reason is the stones chosen.
+    /// </summary>
+    internal StoneRefusal LastRefusal { get; private set; }
 
     /// <summary>
     /// Why the last update failed to lay a breakwater's stones, or null when it did not.
@@ -80,22 +92,10 @@ namespace BreakwaterTool.Breakwaters {
     /// <param name="record">The breakwater's record, or <see cref="Entity.Null"/> when nothing is
     /// laid.</param>
     /// <returns>Why nothing is laid, or null when the stones appear at the next update.</returns>
-    internal string? Create(
-      IReadOnlyList<float2> polygon,
-      IReadOnlyList<Entity> choice,
-      BreakwaterParameters parameters,
-      out Entity record
-    ) {
+    internal string? Create(BreakwaterState state, out Entity record) {
       record = Entity.Null;
 
-      var state = new BreakwaterState(
-        [.. polygon],
-        [.. choice],
-        parameters,
-        StoneProtectionKind.Anarchy
-      );
-
-      if (this.Plan(state, out var stones) is {} why) {
+      if (this.Plan(ref state, out var stones) is {} why) {
         return why;
       }
 
@@ -117,23 +117,19 @@ namespace BreakwaterTool.Breakwaters {
     /// An edit that lays nothing changes nothing.
     /// </summary>
     /// <returns>Why nothing is laid, or null when the stones change at the next update.</returns>
-    internal string? Edit(
-      Entity record,
-      IReadOnlyList<float2>? polygon,
-      IReadOnlyList<Entity>? choice,
-      BreakwaterParameters? parameters
-    ) {
+    internal string? Edit(Entity record, BreakwaterChange change) {
       if (this.Read(record) is not {} current) {
         return "it is not a breakwater";
       }
 
       var state = current with {
-        Polygon = polygon?.ToArray() ?? current.Polygon,
-        Choice = choice?.ToArray() ?? current.Choice,
-        Parameters = parameters ?? current.Parameters
+        Polygon = change.Polygon?.ToArray() ?? current.Polygon,
+        Choice = change.Choice?.ToArray() ?? current.Choice,
+        Parameters = change.Parameters ?? current.Parameters,
+        Toe = change.Toe is null ? current.Toe : [.. change.Toe]
       };
 
-      if (this.Plan(state, out var stones) is {} why) {
+      if (this.Plan(ref state, out var stones) is {} why) {
         return why;
       }
 
@@ -199,8 +195,130 @@ namespace BreakwaterTool.Breakwaters {
       this.Queue(snapshot.Record, snapshot.Stones, this.Read(snapshot.Record));
       this.Write(snapshot.Record, snapshot.State);
 
+      this.plantsToLay.AddRange(snapshot.Cleared);
+      snapshot.Cleared.Clear();
+
       return null;
     }
+
+    /// <summary>
+    /// Clears the plants inside a breakwater's outline, trees and bushes, those of a building or a
+    /// road excepted, at the next update.
+    /// </summary>
+    /// <returns>
+    /// The plants cleared, as they stood: empty when the entity is no breakwater.
+    /// </returns>
+    internal PlantState[] ClearVegetation(Entity record) {
+      if (this.Read(record) is not {} state) {
+        return [];
+      }
+
+      var low = state.Polygon.Aggregate(math.min);
+      var high = state.Polygon.Aggregate(math.max);
+
+      using var plants = this.plantsQuery.ToEntityArray(Allocator.Temp);
+      using var transforms = this.plantsQuery.ToComponentDataArray<Transform>(Allocator.Temp);
+
+      var cleared = new List<PlantState>();
+
+      for (var i = 0; i < plants.Length; i++) {
+        var at = transforms[i].m_Position.xz;
+
+        // [PERF] The bounds first, in place of the outline's edges for every plant of the map.
+        if (math.any(at < low) ||
+          math.any(at > high) ||
+          !GroundCheck.Contains(state.Polygon, at) ||
+          this.plantsToClear.Contains(plants[i])) {
+          continue;
+        }
+
+        var plant = plants[i];
+
+        this.plantsToClear.Add(plant);
+
+        cleared.Add(
+          new PlantState(
+            this.EntityManager.GetComponentData<PrefabRef>(plant).m_Prefab,
+            transforms[i],
+            this.EntityManager.TryGetComponent<PseudoRandomSeed>(plant, out var seed)
+              ? seed.m_Seed
+              : (ushort) 0,
+            this.EntityManager.TryGetComponent<Tree>(plant, out var tree) ? tree : null,
+            this.EntityManager.HasComponent<Native>(plant)
+          )
+        );
+      }
+
+      return [.. cleared];
+    }
+
+    /// <summary>
+    /// Whether the ground under a breakwater changed since its stones were laid, which Fit to
+    /// terrain answers.
+    /// </summary>
+    internal bool IsOutdated(Entity record) {
+      if (!this.IsBreakwater(record)) {
+        return false;
+      }
+
+      var host = new GameLayoutHost(this.terrainSystem.GetHeightData(waitForPending: true));
+
+      var polygon = this.EntityManager.GetBuffer<BreakwaterVertex>(record, true)
+        .AsNativeArray()
+        .Select(static vertex => vertex.position)
+        .ToArray();
+
+      return host.GroundHashOf(polygon) !=
+        this.EntityManager.GetComponentData<BreakwaterRecord>(record).groundHash;
+    }
+
+    /// <summary>
+    /// How each chosen prefab fares with these parameters: how many stones it lists, and how many
+    /// of them the size tolerance and the protection let through.
+    /// </summary>
+    internal StoneVerdict[] Judge(IReadOnlyList<Entity> choice, BreakwaterParameters parameters) {
+      var stones = this.catalog.Expand(choice);
+
+      var protectable = stones
+        .Where(prefab =>
+          this.protection.Unavailable is not null ||
+          this.protection.Classify(this.EntityManager, prefab) != PrefabCare.Unprotectable
+        )
+        .ToList();
+
+      var laid = protectable.Count == 0
+        ? []
+        : BreakwaterLayout
+          .Kept(protectable.ConvertAll(this.catalog.Shape), parameters)
+          .Kept.Select(index => protectable[index])
+          .ToHashSet();
+
+      return [
+        .. choice.Select(prefab => {
+            var own = this.catalog.Expand([prefab]);
+
+            return new StoneVerdict(
+              prefab,
+              this.catalog.Name(prefab),
+              own.Count,
+              own.Count(laid.Contains),
+              own.Count > 0 && own.All(stone => !protectable.Contains(stone))
+            );
+          }
+        )
+      ];
+    }
+
+    /// <summary>
+    /// The prefab entities of a list of prefab ids, each as <see cref="IdOf"/> gives it or a static
+    /// object's bare name, those the game lacks left out.
+    /// </summary>
+    internal Entity[] Resolve(IEnumerable<string> ids) => this.catalog.Resolve(ids);
+
+    /// <summary>
+    /// A prefab's id, which <see cref="Resolve"/> finds it by.
+    /// </summary>
+    internal string IdOf(Entity prefab) => this.catalog.Id(prefab);
 
     /// <summary>
     /// What a breakwater's record holds, or null when the entity is not a breakwater.
@@ -224,7 +342,15 @@ namespace BreakwaterTool.Breakwaters {
             .Select(static stone => stone.prefab)
         ],
         data.Parameters,
-        data.protection
+        data.protection,
+        data.isToeByHand
+          ? [
+            .. this.EntityManager.GetBuffer<BreakwaterVertex>(record, true)
+              .AsNativeArray()
+              .Select(static vertex => vertex.isToe)
+          ]
+          : null,
+        data.groundHash
       );
     }
 
@@ -238,9 +364,9 @@ namespace BreakwaterTool.Breakwaters {
       !(this.pending.TryGetValue(record, out var lay) && lay.Stones is null);
 
     /// <summary>
-    /// The stones a new breakwater lays until the player chooses others.
+    /// Whether a prefab can be chosen: a stone, or a random prefab that lists one.
     /// </summary>
-    internal Entity[] DefaultChoice() => this.catalog.DefaultChoice();
+    internal bool CanLay(Entity prefab) => this.catalog.Expand([prefab]).Count > 0;
 
     /// <summary>
     /// The city's breakwaters.
@@ -281,6 +407,15 @@ namespace BreakwaterTool.Breakwaters {
         ComponentType.Exclude<Deleted>(),
         ComponentType.Exclude<Temp>()
       );
+
+      // A plant with an owner belongs to a building or a road, which lays it again.
+      this.plantsQuery = this.GetEntityQuery(
+        ComponentType.ReadOnly<Plant>(),
+        ComponentType.ReadOnly<Transform>(),
+        ComponentType.Exclude<Owner>(),
+        ComponentType.Exclude<Deleted>(),
+        ComponentType.Exclude<Temp>()
+      );
     }
 
     protected override void OnGamePreload(Purpose purpose, GameMode mode) {
@@ -288,10 +423,14 @@ namespace BreakwaterTool.Breakwaters {
 
       // Waiting work belongs to the city being left.
       this.pending.Clear();
+      this.plantsToClear.Clear();
+      this.plantsToLay.Clear();
       this.Revision++;
     }
 
     protected override void OnUpdate() {
+      this.UpdatePlants();
+
       if (this.pending.Count == 0) {
         return;
       }
@@ -342,9 +481,10 @@ namespace BreakwaterTool.Breakwaters {
     /// Checks a breakwater's state and lays its stones out, without touching the city.
     /// </summary>
     /// <returns>Why nothing can be laid, or null.</returns>
-    private string? Plan(BreakwaterState state, out StoneState[] stones) {
+    private string? Plan(ref BreakwaterState state, out StoneState[] stones) {
       stones = [];
       this.LastLayout = null;
+      this.LastRefusal = StoneRefusal.None;
 
       if (!GameManager.instance.gameMode.IsGameOrEditor()) {
         return "no city or map is loaded";
@@ -377,6 +517,10 @@ namespace BreakwaterTool.Breakwaters {
       }
 
       if (laid.Count == 0) {
+        this.LastRefusal = chosen.Count == 0
+          ? StoneRefusal.NoStoneChosen
+          : StoneRefusal.Unprotectable;
+
         return chosen.Count == 0
           ? "no stone is chosen"
           : "none of the chosen stones can be protected by Anarchy";
@@ -384,8 +528,20 @@ namespace BreakwaterTool.Breakwaters {
 
       var host = new GameLayoutHost(this.terrainSystem.GetHeightData(waitForPending: true));
 
+      // Toe edges that no longer match the outline, or that hold none, hand the toe back to the
+      // layout.
+      if (state.Toe is {} toe && (toe.Length != state.Polygon.Length || !toe.Contains(true))) {
+        state = state with {
+          Toe = null
+        };
+      }
+
+      state = state with {
+        GroundHash = host.GroundHashOf(state.Polygon)
+      };
+
       var shapes = laid.Select(this.catalog.Shape).ToList();
-      var layout = BreakwaterLayout.Lay(state.Polygon, shapes, state.Parameters, host);
+      var layout = BreakwaterLayout.Lay(state.Polygon, shapes, state.Parameters, host, state.Toe);
 
       this.LastLayout = layout;
 
@@ -393,11 +549,13 @@ namespace BreakwaterTool.Breakwaters {
         return nothing;
       }
 
+      var seed = state.Parameters.Seed;
+
       stones = [
         .. layout.Stones.Select((stone, index) => new StoneState(
             laid[stone.Shape],
             new Transform(stone.Position, stone.Rotation),
-            BreakwaterSystem.Seed(state.Parameters.Seed, index)
+            BreakwaterSystem.Seed(seed, index)
           )
         )
       ];
@@ -479,6 +637,42 @@ namespace BreakwaterTool.Breakwaters {
       return entities;
     }
 
+    /// <summary>
+    /// Clears the plants waiting for it, and lays again those a revert brings back.
+    /// </summary>
+    private void UpdatePlants() {
+      if (this.plantsToClear.Count > 0) {
+        this.MarkDeleted([.. this.plantsToClear.Where(this.EntityManager.Exists)]);
+        this.plantsToClear.Clear();
+      }
+
+      foreach (var plant in this.plantsToLay) {
+        // A plant whose prefab went with its asset stays cleared.
+        if (!this.EntityManager.TryGetComponent<ObjectData>(plant.Prefab, out var data)) {
+          continue;
+        }
+
+        var entity = this.EntityManager.CreateEntity(data.m_Archetype);
+
+        this.EntityManager.SetComponentData(entity, new PrefabRef(plant.Prefab));
+        this.EntityManager.SetComponentData(entity, plant.Transform);
+
+        if (this.EntityManager.HasComponent<PseudoRandomSeed>(entity)) {
+          this.EntityManager.SetComponentData(entity, new PseudoRandomSeed(plant.Seed));
+        }
+
+        if (plant.Tree is {} tree && this.EntityManager.HasComponent<Tree>(entity)) {
+          this.EntityManager.SetComponentData(entity, tree);
+        }
+
+        if (plant.IsNative) {
+          this.EntityManager.AddComponent<Native>(entity);
+        }
+      }
+
+      this.plantsToLay.Clear();
+    }
+
     private void MarkDeleted(List<Entity> entities) {
       using var array = new NativeArray<Entity>([.. entities], Allocator.Temp);
 
@@ -502,17 +696,14 @@ namespace BreakwaterTool.Breakwaters {
     private void Write(Entity record, BreakwaterState state) {
       this.Revision++;
 
-      this.EntityManager.SetComponentData(
-        record,
-        new BreakwaterRecord(state.Parameters, state.Protection)
-      );
+      this.EntityManager.SetComponentData(record, new BreakwaterRecord(state));
 
       var vertices = this.EntityManager.GetBuffer<BreakwaterVertex>(record);
 
       vertices.Clear();
 
-      foreach (var point in state.Polygon) {
-        vertices.Add(new BreakwaterVertex(point));
+      for (var i = 0; i < state.Polygon.Length; i++) {
+        vertices.Add(new BreakwaterVertex(state.Polygon[i], state.Toe?[i] ?? false));
       }
 
       var prefabs = this.EntityManager.GetBuffer<BreakwaterStonePrefab>(record);
@@ -531,5 +722,48 @@ namespace BreakwaterTool.Breakwaters {
       (ushort) math.hash(new uint2(layoutSeed, (uint) index));
 
     private readonly record struct PendingLay(StoneState[]? Stones, BreakwaterState? Before);
+  }
+
+  /// <summary>
+  /// What an edit changes of a breakwater, null keeping what it has.
+  /// </summary>
+  /// <param name="Toe">
+  /// Per edge of the outline, whether it is toe; an empty list hands the toe back to the layout.
+  /// </param>
+  internal sealed record BreakwaterChange(
+    IReadOnlyList<float2>? Polygon = null,
+    IReadOnlyList<Entity>? Choice = null,
+    BreakwaterParameters? Parameters = null,
+    IReadOnlyList<bool>? Toe = null
+  );
+
+  /// <summary>
+  /// How a chosen prefab fares: the stones it lists, itself when it is one, and how many of them
+  /// are laid.
+  /// </summary>
+  /// <param name="IsUnprotectable">Whether Anarchy can protect none of its stones.</param>
+  internal readonly record struct StoneVerdict(
+    Entity Prefab,
+    string Name,
+    int Stones,
+    int Laid,
+    bool IsUnprotectable
+  );
+
+  /// <summary>
+  /// Why the stones chosen let nothing be laid.
+  /// </summary>
+  internal enum StoneRefusal {
+    None,
+
+    /// <summary>
+    /// The choice holds no stone.
+    /// </summary>
+    NoStoneChosen,
+
+    /// <summary>
+    /// Anarchy can protect none of the chosen stones.
+    /// </summary>
+    Unprotectable
   }
 }

@@ -4,7 +4,8 @@ using Unity.Entities;
 namespace BreakwaterTool.Breakwaters;
 
 /// <summary>
-/// A breakwater: its layout parameters and its protection, on an entity of its own that also holds
+/// A breakwater: its layout parameters, its protection, whether its toe is picked by hand and the
+/// ground its stones were laid on, on an entity of its own that also holds
 /// its outline (<see cref="BreakwaterVertex"/>) and its stone choice
 /// (<see cref="BreakwaterStonePrefab"/>). Its stones point at it through their
 /// <see cref="StoneLink"/>; it lists none of them.
@@ -40,9 +41,25 @@ internal struct BreakwaterRecord : IComponentData, ISerializable {
 
   public float tumble;
 
+  public float toeShare;
+
+  public float levelHeight;
+
   public StoneProtectionKind protection;
 
-  internal BreakwaterRecord(BreakwaterParameters parameters, StoneProtectionKind protection) {
+  /// <summary>
+  /// Whether the toe is the edges flagged in the outline, in place of the layout's own choice.
+  /// </summary>
+  public bool isToeByHand;
+
+  /// <summary>
+  /// The hash of the ground the stones were laid on (<see cref="GroundHash"/>).
+  /// </summary>
+  public ulong groundHash;
+
+  internal BreakwaterRecord(BreakwaterState state) {
+    var parameters = state.Parameters;
+
     this.density = parameters.Density;
     this.embed = parameters.Embed;
     this.irregularity = parameters.Irregularity;
@@ -57,7 +74,11 @@ internal struct BreakwaterRecord : IComponentData, ISerializable {
     this.layers = parameters.Layers;
     this.underLayerDepth = parameters.UnderLayerDepth;
     this.tumble = parameters.Tumble;
-    this.protection = protection;
+    this.toeShare = parameters.ToeShare;
+    this.levelHeight = parameters.LevelHeight;
+    this.protection = state.Protection;
+    this.isToeByHand = state.Toe is not null;
+    this.groundHash = state.GroundHash;
   }
 
   internal readonly BreakwaterParameters Parameters =>
@@ -75,7 +96,9 @@ internal struct BreakwaterRecord : IComponentData, ISerializable {
       Mixing = this.mixing,
       Layers = this.layers,
       UnderLayerDepth = this.underLayerDepth,
-      Tumble = this.tumble
+      Tumble = this.tumble,
+      ToeShare = this.toeShare,
+      LevelHeight = this.levelHeight
     };
 
   public readonly void Serialize<TWriter>(TWriter writer) where TWriter : IWriter {
@@ -94,7 +117,11 @@ internal struct BreakwaterRecord : IComponentData, ISerializable {
     writer.Write(this.layers);
     writer.Write(this.underLayerDepth);
     writer.Write(this.tumble);
+    writer.Write(this.toeShare);
+    writer.Write(this.levelHeight);
     writer.Write((byte) this.protection);
+    writer.Write(this.isToeByHand);
+    writer.Write(this.groundHash);
   }
 
   public void Deserialize<TReader>(TReader reader) where TReader : IReader {
@@ -114,7 +141,11 @@ internal struct BreakwaterRecord : IComponentData, ISerializable {
     reader.Read(out this.layers);
     reader.Read(out this.underLayerDepth);
     reader.Read(out this.tumble);
+    reader.Read(out this.toeShare);
+    reader.Read(out this.levelHeight);
     reader.Read(out byte protectionByte);
+    reader.Read(out this.isToeByHand);
+    reader.Read(out this.groundHash);
 
     this.protection = (StoneProtectionKind) protectionByte;
   }
