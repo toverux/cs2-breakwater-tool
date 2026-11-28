@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Unity.Mathematics;
 
 namespace BreakwaterTool.Layout;
@@ -11,8 +12,19 @@ namespace BreakwaterTool.Layout;
 internal sealed class StoneShape {
   private readonly float3[] vertices;
 
+  // Built on the first dumped layout that lays the stone, as a laid breakwater never needs it.
+  private readonly System.Lazy<HeapShape> heap;
+
   /// <param name="mesh">The prefab's vertices in its own frame, all its meshes together.</param>
-  internal StoneShape(IReadOnlyList<float3> mesh) {
+  /// <param name="triangles">
+  /// Three indices into the vertices per triangle, which fitting a dumped stone samples; without
+  /// them, it takes the vertices alone.
+  /// </param>
+  internal StoneShape(IReadOnlyList<float3> mesh, IReadOnlyList<int>? triangles = null) {
+    var original = mesh.ToArray();
+
+    this.heap = new System.Lazy<HeapShape>(() => new HeapShape(original, triangles ?? []));
+
     var smallest = float.MaxValue;
 
     for (var degree = 0; degree < 90; degree++) {
@@ -50,6 +62,11 @@ internal sealed class StoneShape {
   internal float MaxY { get; }
 
   internal float Height => this.MaxY - this.MinY;
+
+  /// <summary>
+  /// What fitting the stone into a heap takes from its mesh.
+  /// </summary>
+  internal HeapShape Heap => this.heap.Value;
 
   /// <summary>
   /// The size and centre, in the long axis frame, of the part above the embed line: what shows

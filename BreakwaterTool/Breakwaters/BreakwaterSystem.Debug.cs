@@ -40,18 +40,16 @@ namespace BreakwaterTool.Breakwaters {
     /// A name not found gives <see cref="Entity.Null"/>.
     /// </summary>
     internal static Entity[] DebugPrefabs(string names) {
-      var prefabs = BreakwaterSystem.Instance.prefabSystem;
+      var system = BreakwaterSystem.Instance;
 
       return [
         .. names.Split(',')
           .Select(static name => name.Trim().Split(':'))
-          .Select(static parts => parts.Length == 2
-            ? new PrefabID(parts[0], parts[1])
-            : new PrefabID(nameof(StaticObjectPrefab), parts[0])
-          )
-          .Select(id => prefabs.TryGetPrefab(id, out var found)
-            ? prefabs.GetEntity(found)
-            : Entity.Null
+          .Select(parts => parts.Length == 2
+            ? system.prefabSystem.TryGetPrefab(new PrefabID(parts[0], parts[1]), out var found)
+              ? system.prefabSystem.GetEntity(found)
+              : Entity.Null
+            : system.catalog.Find(parts[0])
           )
       ];
     }

@@ -32,6 +32,16 @@ internal static class BreakwaterLayout {
   /// </summary>
   private const float Farthest = 32_768f;
 
+  #if DEBUG
+  /// <summary>
+  /// Whether dumped stones are fitted into a heap, or only tumbled: the comparison an agent or the
+  /// user makes in the game.
+  /// </summary>
+  internal static bool DebugIsFitting { get; set; } = true;
+  #else
+  private const bool DebugIsFitting = true;
+  #endif
+
   /// <param name="polygon">The breakwater's outline, in game metres, not closed.</param>
   /// <param name="shapes">The stones to lay; <see cref="LaidStone.Shape"/> indexes them.</param>
   /// <param name="toeEdges">
@@ -61,6 +71,8 @@ internal static class BreakwaterLayout {
       };
     }
 
+    var isHeaped = BreakwaterLayout.IsHeaped(parameters);
+    var laidShapes = isHeaped ? shapes.Select(static shape => shape.Heap.Rested).ToList() : shapes;
     var (kept, sizes, centres) = BreakwaterLayout.Kept(shapes, parameters);
     var leftOut = Enumerable.Range(0, shapes.Count).Except(kept).ToArray();
     var meanSize = kept.Aggregate(float2.zero, (sum, i) => sum + sizes[i]) / kept.Length;
@@ -100,10 +112,10 @@ internal static class BreakwaterLayout {
       host
     );
 
-    var builder = new Builder(shapes, parameters, host, field) {
+    var builder = new Builder(laidShapes, parameters, host, field) {
       Kept = kept,
       Centres = centres,
-      MeanHeight = kept.Average(i => shapes[i].Height),
+      MeanHeight = kept.Average(i => laidShapes[i].Height),
       StoneSpacing = stoneSpacing,
       RowSpacing = rowSpacing,
       Sampler = new RowSampler(stoneSpacing, rowSpacing)
@@ -129,9 +141,24 @@ internal static class BreakwaterLayout {
       };
     }
 
+    var stones = isHeaped
+      ? HeapFit.Fit(
+        [
+          .. builder.Stones.Select(stone => stone with {
+              Rotation = math.mul(stone.Rotation, shapes[stone.Shape].Heap.Rest)
+            }
+          )
+        ],
+        [.. shapes.Select(static shape => shape.Heap)],
+        host,
+        parameters.Embed,
+        parameters.Seed
+      )
+      : builder.Stones;
+
     return new LayoutResult {
       Verdict = LayoutVerdict.Laid,
-      Stones = builder.Stones,
+      Stones = stones,
       Estimate = (int) estimate,
       ToeEdges = toe,
       LeftOut = leftOut,
@@ -159,6 +186,13 @@ internal static class BreakwaterLayout {
   }
 
   /// <summary>
+  /// Whether the parameters dump the stones, which are then fitted into a heap at rest and spaced
+  /// by the room they take there.
+  /// </summary>
+  internal static bool IsHeaped(BreakwaterParameters parameters) =>
+    parameters.Tumble > 0f && BreakwaterLayout.DebugIsFitting;
+
+  /// <summary>
   /// The shapes the size tolerance keeps, as indices: those whose footprint area is within it of
   /// the median one.
   /// </summary>
@@ -170,15 +204,21 @@ internal static class BreakwaterLayout {
     IReadOnlyList<StoneShape> shapes,
     BreakwaterParameters parameters
   ) {
+    var isHeaped = BreakwaterLayout.IsHeaped(parameters);
     var sizes = new float2[shapes.Count];
     var centres = new float2[shapes.Count];
 
     for (var i = 0; i < shapes.Count; i++) {
-      sizes[i] = shapes[i].Footprint(parameters.Embed, out centres[i]);
+      // A heaped stone's footprint at rest, shrunk to the share of its rectangle it covers.
+      sizes[i] = isHeaped
+        ? shapes[i].Heap.Rested.Footprint(parameters.Embed, out centres[i]) *
+          math.sqrt(shapes[i].Heap.Fill)
+        : shapes[i].Footprint(parameters.Embed, out centres[i]);
 
       if (parameters.IsLongAxisAcross) {
         sizes[i] = sizes[i].yx;
       }
+
     }
 
     // Stored as floats, so the median's own ratio is exactly 1 in the game's double arithmetic too.

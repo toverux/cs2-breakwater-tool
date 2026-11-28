@@ -91,9 +91,11 @@ internal sealed class Album {
   /// <summary>
   /// Shoots what the camera sees, without the game's UI, into the album beside the site's picture.
   /// </summary>
-  internal void Shoot(ProvingSite site) {
+  internal void Shoot(ProvingSite site, string? name = null) {
+    name ??= site.Name;
+
     var target = ScreenCaptureHelper.CreateRenderTarget(
-      $"{nameof(Album)}-{site.Name}",
+      $"{nameof(Album)}-{name}",
       Album.Width,
       Album.Height
     );
@@ -114,16 +116,16 @@ internal sealed class Album {
     image.Apply();
     RenderTexture.active = active;
 
-    File.WriteAllBytes(Path.Combine(this.Folder, $"{site.Name}.png"), image.EncodeToPNG());
+    File.WriteAllBytes(Path.Combine(this.Folder, $"{name}.png"), image.EncodeToPNG());
 
     Object.Destroy(image);
     target.Release();
     Object.Destroy(target);
 
     this.page.Append(
-      $"<section><div><h2>{site.Name}</h2><p>{WebUtility.HtmlEncode(site.Shows)}</p></div>" +
+      $"<section><div><h2>{name}</h2><p>{WebUtility.HtmlEncode(site.Shows)}</p></div>" +
       $"<img src=\"{this.pictures}/{site.Name}.svg\" alt=\"no approved picture\">" +
-      $"<img src=\"{site.Name}.png\"></section>\n"
+      $"<img src=\"{name}.png\"></section>\n"
     );
   }
 

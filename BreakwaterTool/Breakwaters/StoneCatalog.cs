@@ -19,21 +19,56 @@ internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager enti
   // [PERF] Read once per prefab, in place of at each lay: a mesh does not change for the session.
   private readonly Dictionary<Entity, StoneShape> shapes = [];
 
+  // The static objects by bare name, an asset's among them, built on the first name the game's
+  // lookup misses.
+  private Dictionary<string, Entity>? byName;
+
   /// <summary>
   /// The prefab entities of a list of prefab ids, each as <see cref="Id"/> writes it or a static
   /// object's bare name, those the game lacks left out.
   /// </summary>
   internal Entity[] Resolve(IEnumerable<string> ids) => [
     .. ids
-      .Select(static id => StoneCatalog.Parse(id.Trim()))
-      .Select(id => prefabSystem.TryGetPrefab(id, out var prefab) &&
-        prefabSystem.TryGetEntity(prefab, out var entity)
-          ? entity
-          : Entity.Null
-      )
+      .Select(static id => id.Trim())
+      .Select(this.Find)
       .Where(static entity => entity != Entity.Null)
       .Distinct()
   ];
+
+  /// <summary>
+  /// A prefab by its id, or a static object by its bare name, an asset's too, whose id carries a
+  /// hash a bare name lacks.
+  /// </summary>
+  internal Entity Find(string id) {
+    if (prefabSystem.TryGetPrefab(StoneCatalog.Parse(id), out var prefab) &&
+      prefabSystem.TryGetEntity(prefab, out var entity)) {
+      return entity;
+    }
+
+    if (id.Contains('/')) {
+      return Entity.Null;
+    }
+
+    if (this.byName is null) {
+      using var query = entityManager.CreateEntityQuery(
+        ComponentType.ReadOnly<ObjectGeometryData>(),
+        ComponentType.ReadOnly<PrefabData>()
+      );
+
+      using var prefabs = query.ToEntityArray(Allocator.Temp);
+
+      this.byName = [];
+
+      foreach (var candidate in prefabs) {
+        if (prefabSystem.TryGetPrefab<StaticObjectPrefab>(candidate, out var found) &&
+          found is not null) {
+          this.byName.TryAdd(found.name, candidate);
+        }
+      }
+    }
+
+    return this.byName.TryGetValue(Uri.UnescapeDataString(id), out var named) ? named : Entity.Null;
+  }
 
   /// <summary>
   /// A prefab's id, <c>Type/Name</c> or <c>Type/Name/Hash</c> escaped as in a URL, which
@@ -82,6 +117,7 @@ internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager enti
     }
 
     var vertices = new List<float3>();
+    var triangles = new List<int>();
 
     foreach (var info in prefabSystem.GetPrefab<StaticObjectPrefab>(prefab).m_Meshes) {
       if (info.m_Mesh is not RenderPrefab render) {
@@ -96,6 +132,9 @@ internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager enti
       }
 
       foreach (var mesh in meshes) {
+        var first = vertices.Count;
+
+        triangles.AddRange(mesh.triangles.Select(index => first + index));
         vertices.AddRange(
           mesh.vertices.Select(vertex => info.m_Position + math.rotate(info.m_Rotation, vertex))
         );
@@ -104,7 +143,7 @@ internal sealed class StoneCatalog(PrefabSystem prefabSystem, EntityManager enti
       render.ReleaseMeshes();
     }
 
-    return this.shapes[prefab] = new StoneShape(vertices);
+    return this.shapes[prefab] = new StoneShape(vertices, triangles);
   }
 
   /// <summary>
